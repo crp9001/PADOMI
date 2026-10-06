@@ -596,8 +596,8 @@ def factor_trafico(cfg, a, b, cuando):
                 k = v["hacia_centro"] if r < 0 else v["desde_centro"]
                 peso = abs(r) * min(1.0, dab / cfg.get("km_efecto_pleno", 4))
                 f *= 1 + (k - 1) * peso
-                if peso > 0.2:
-                    flujo = "sentido cargado" if k > 1 else "a contraflujo, más libre"
+                if abs(k - 1) * peso >= 0.04:              # solo si de verdad cambia el tiempo
+                    flujo = "sentido cargado" if k > 1 else "contraflujo"
                 break
     return f, etiqueta, sentido, flujo
 
