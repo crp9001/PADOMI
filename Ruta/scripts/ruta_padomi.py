@@ -563,8 +563,47 @@ def ingerir_tiempos(fec, cache, avisos):
     guardar(f"tiempos_{fec}.json", cache)
 
 
+# ---------------------------------------------------------------- tráfico por hora y sentido
+def cargar_trafico():
+    try:
+        return json.load(open(os.path.join(AQUI, "..", "data", "trafico.json"), encoding="utf-8"))
+    except Exception:                                   # sin el archivo: el 1.5 parejo de siempre
+        return {"franjas": [["00:00", "24:00", FACTOR_TRAFICO, "tráfico"]], "direccion": [], "centro": [-12.085, -77.03]}
+
+def _min_dia(t):
+    h, m = t.split(":")
+    return int(h) * 60 + int(m)
+
+def factor_trafico(cfg, a, b, cuando):
+    """factor sobre el tiempo sin tráfico para ir de a a b saliendo a la hora 'cuando' (datetime de Lima):
+    por franja horaria, por día y por sentido (hacia el centro o saliendo de él, según la hora)"""
+    m = cuando.hour * 60 + cuando.minute
+    f, etiqueta = FACTOR_TRAFICO, "tráfico"
+    for d, h, fx, et in cfg["franjas"]:
+        if _min_dia(d) <= m < _min_dia(h):
+            f, etiqueta = fx, et
+            break
+    dia = cuando.weekday()
+    f *= cfg.get("sabado", 1) if dia == 5 else (cfg.get("domingo", 1) if dia == 6 else 1)
+    C = tuple(cfg.get("centro", (-12.085, -77.03)))
+    dab = hav(a, b)
+    r = max(-1.0, min(1.0, (hav(b, C) - hav(a, C)) / max(dab, 0.3)))   # <0 hacia el centro, >0 saliendo
+    sentido = "hacia el centro" if r < -0.3 else ("saliendo del centro" if r > 0.3 else "dentro de la zona")
+    flujo = ""
+    if cuando.weekday() < 5:
+        for v in cfg.get("direccion", []):
+            if _min_dia(v["desde"]) <= m < _min_dia(v["hasta"]):
+                k = v["hacia_centro"] if r < 0 else v["desde_centro"]
+                peso = abs(r) * min(1.0, dab / cfg.get("km_efecto_pleno", 4))
+                f *= 1 + (k - 1) * peso
+                if peso > 0.2:
+                    flujo = "sentido cargado" if k > 1 else "a contraflujo, más libre"
+                break
+    return f, etiqueta, sentido, flujo
+
+
 # ---------------------------------------------------------------- orden de visita
-def calcular(fec, voy, gps=None, quitar=None, anchas=()):
+def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
     anchas = AVENIDAS_ANCHAS + [sin_tildes(a.strip()) for a in anchas if a.strip()]
     B = construir(fec, voy, usar_lugares=True, gps=gps, quitar=quitar)
     S, avisos, inicio = B["stops"], B["avisos"], B["inicio"]
@@ -712,6 +751,25 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=()):
             and abs(costo(order[::-1]) - costo(order)) < 1:
         order.reverse()
 
+    # línea de tiempo: cada tramo con el tráfico de la hora y el sentido en que se maneja
+    cfg = cargar_trafico()
+    reloj = salida or hora_lima()
+    seq_nodes = [0] + order + [E]
+    leg_min, info_leg = {}, {}
+    for j in range(1, len(seq_nodes)):
+        a, b = seq_nodes[j - 1], seq_nodes[j]
+        if (a, b) in pie:                                  # a pie: sin tráfico
+            mins = T[a][b] * FACTOR_TRAFICO / 60
+        else:
+            f, et, sen, flu = factor_trafico(cfg, pts[a], pts[b], reloj)
+            mins = T[a][b] * f / 60
+            info_leg[j] = {"hora": reloj.strftime("%H:%M"), "factor": round(f, 2), "franja": et,
+                           "sentido": sen, "flujo": flu, "min": round(mins)}
+        leg_min[j] = mins
+        reloj += datetime.timedelta(minutes=mins)
+        if b != E:
+            reloj += datetime.timedelta(minutes=MIN_POR_PACIENTE * len(S[b - 1]["pacientes"]))
+
     n0 = voy if inicio["tipo"] == "parada" else 0
     paradas, prev_i, prev_num = [], 0, n0
     for num, idx in enumerate(order, n0 + 1):
@@ -724,7 +782,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=()):
             nav += f"&destination_place_id={pid}"
         paradas.append({"n": num, "lat": round(s["lat"], 6), "lng": round(s["lng"], 6),
                         "km_desde_anterior": round(D[prev_i][idx], 2),
-                        "min_desde_anterior": round(T[prev_i][idx] * FACTOR_TRAFICO / 60, 1),
+                        "min_desde_anterior": round(leg_min[num - n0], 1),
                         "pacientes": s["pacientes"], "destino": s["destino"], "place_id": pid,
                         "gps": f"{la:.5f}, {lo:.5f}", "nav": nav,
                         # a pie desde la parada anterior (0 = desde donde estás): la unidad no se mueve
@@ -737,7 +795,6 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=()):
     nav_retorno = (f"{NAV}&destination={PADOMI[0]:.6f},{PADOMI[1]:.6f}&destination_place_id={PADOMI_PID}"
                    f"&waypoints={ARENALES[0]:.6f},{ARENALES[1]:.6f}")
 
-    seq_nodes = [0] + order + [E]
     n_par = len(paradas)
     tramos = []
     for k in range(1, max(1, math.ceil(n_par / PARADAS_POR_TRAMO)) + 1):
@@ -750,7 +807,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=()):
         c = [f"{p['lat']:.5f},{p['lng']:.5f}" for p in manejo_k]   # enlace corto: solo coordenadas, separador %7C
         enlace = f"{NAV}&destination={c[-1]}" + (("&waypoints=" + "%7C".join(c[:-1])) if len(c) > 1 else "")
         km = sum(D[seq_nodes[j - 1]][seq_nodes[j]] for j in legs) * FACTOR_CALLES
-        manejo = sum(T[seq_nodes[j - 1]][seq_nodes[j]] for j in legs) * FACTOR_TRAFICO / 60
+        manejo = sum(leg_min[j] for j in legs)
         npac = sum(len(p["pacientes"]) for p in stops_k)
         tramos.append({"tramo": k, "paradas": [p["n"] for p in stops_k], "pacientes": npac, "enlace": enlace,
                        "km_calles_est": round(km, 1), "manejo_min": int(round(manejo)),
@@ -766,6 +823,8 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=()):
                                            "ajuste_m": p["destino"]["ajuste_m"]} for p in paradas if p.get("destino")],
         "nuevos": [x["paciente"] for p in paradas for x in p["pacientes"] if x.get("nuevo")],
         "avisos": avisos,
+        "trafico": {"salida": (salida or hora_lima()).strftime("%H:%M"), "salida_fijada": salida is not None,
+                    "ida": info_leg.get(1), "regreso": info_leg.get(len(seq_nodes) - 1)},
     }
     return B, ruta
 
@@ -819,10 +878,22 @@ def lista_md(ruta, ahora):
                  f"{fmt(t['atencion_min'])} ({t['pacientes']} pac.) = {fmt(man + t['atencion_min'])}")
     total = ruta["total_min"]
     llegada = (ahora + datetime.timedelta(minutes=total)).strftime("%H:%M")
+    tr = ruta.get("trafico") or {}
     if ruta["inicio"]["tipo"] != "padomi":
         L.append(f"**Tiempo restante: {fmt(total)}** · llegada a PADOMI hacia las {llegada}")
     else:
-        L.append(f"**Tiempo total estimado: {fmt(total)}** · si sales ahora ({ahora.strftime('%H:%M')}), llegas a PADOMI hacia las {llegada}")
+        cuando = (f"saliendo a las {ahora.strftime('%H:%M')}" if tr.get("salida_fijada")
+                  else f"si sales ahora ({ahora.strftime('%H:%M')})")
+        L.append(f"**Tiempo total estimado: {fmt(total)}** · {cuando}, llegas a PADOMI hacia las {llegada}")
+    def _tr(x, nombre):
+        if not x:
+            return None
+        extra = ", ".join(v for v in (x["sentido"], x["flujo"]) if v and v != "dentro de la zona")
+        return f"{nombre} {x['hora']} ({x['franja']}{', ' + extra if extra else ''}): ~{x['min']} min"
+    partes = [p for p in (_tr(tr.get("ida"), "ida" if ruta["inicio"]["tipo"] == "padomi" else "siguiente"),
+                          _tr(tr.get("regreso"), "regreso")) if p]
+    if partes:
+        L.append("🚦 " + " · ".join(partes))
     L.append(f"Regreso a PADOMI por Arenales: [🧭 Ir]({ruta['nav_retorno']})")
     L.append("")
     # notas de acceso
@@ -1006,11 +1077,15 @@ def cmd_plan(a):
 
 def cmd_ruta(a):
     fec = a.fec
-    B, ruta = calcular(fec, a.voy, gps_arg(a.gps), a.quitar, (a.ancha or "").split(","))
+    salida = None
+    if a.salida:                                          # para planear o ensayar: --salida 07:00
+        h, m = (int(x) for x in a.salida.split(":"))
+        salida = hora_lima().replace(hour=h, minute=m, second=0, microsecond=0)
+    B, ruta = calcular(fec, a.voy, gps_arg(a.gps), a.quitar, (a.ancha or "").split(","), salida)
     if ruta is None:
         print(json.dumps({"paradas": 0, "avisos": B["avisos"] or ["Sin pacientes pendientes"]}, ensure_ascii=False))
         return
-    ahora = hora_lima()
+    ahora = salida or hora_lima()
     ruta["prof"] = B["data"].get("prof", "") if isinstance(B["data"], dict) else ""
     ruta["especialista"] = a.especialista
     guardar(f"ruta_{fec}.json", ruta)
@@ -1058,6 +1133,7 @@ for p_ in (p2, p3):
     p_.add_argument("--gps", help="--gps=LAT,LNG (con =, porque empieza con signo menos): donde está el usuario")
     p_.add_argument("--quitar", help="apellidos o códigos de pacientes ya atendidos, separados por comas")
 p3.add_argument("--especialista"); p3.add_argument("--sin-grafico", action="store_true")
+p3.add_argument("--salida", help="HH:MM de salida para planear o ensayar (por defecto, ahora)")
 p3.add_argument("--ancha", help="calles que el usuario dice que son anchas o peligrosas de cruzar a pie, separadas por comas")
 A = ap.parse_args()
 {"preparar": cmd_preparar, "plan": cmd_plan, "ruta": cmd_ruta}[A.cmd](A)

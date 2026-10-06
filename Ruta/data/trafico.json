@@ -1,0 +1,21 @@
+{
+  "nota": "Factores sobre el tiempo de calle sin tráfico (OpenStreetMap). Estimados para Lima en días de semana; se ajustan con lo que el conductor reporte.",
+  "franjas": [
+    ["00:00", "06:00", 1.2, "madrugada"],
+    ["06:00", "06:45", 1.5, "temprano"],
+    ["06:45", "09:30", 1.9, "hora punta mañana"],
+    ["09:30", "12:30", 1.5, "tráfico medio"],
+    ["12:30", "14:30", 1.6, "mediodía"],
+    ["14:30", "17:30", 1.5, "tráfico medio"],
+    ["17:30", "20:30", 2.0, "hora punta tarde"],
+    ["20:30", "24:00", 1.3, "noche"]
+  ],
+  "sabado": 0.85,
+  "domingo": 0.7,
+  "centro": [-12.085, -77.030],
+  "direccion": [
+    {"desde": "06:30", "hasta": "10:00", "hacia_centro": 1.25, "desde_centro": 0.8},
+    {"desde": "17:00", "hasta": "20:30", "hacia_centro": 0.8, "desde_centro": 1.25}
+  ],
+  "km_efecto_pleno": 4
+}

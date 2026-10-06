@@ -7,3 +7,9 @@
   tomados de github.com/joseluisq/peru-geojson-datasets.
 
 `grafico_ruta.py` los dibuja tenues debajo de la ruta. Si faltan, el gráfico sale sin fondo.
+
+# Tráfico
+
+- `trafico.json`: factor por franja horaria (días de semana; sábado y domingo más bajos) y por sentido
+  respecto al centro de Lima (de mañana hacia el centro va cargado; de tarde, saliendo). Son estimados:
+  se ajustan con lo que el conductor reporte.

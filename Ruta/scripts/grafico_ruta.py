@@ -128,7 +128,7 @@ for p, d in zip(P, dirs):
     lines = textwrap.wrap(txt, 64, subsequent_indent="   ")
     bold = k > 1 or p["n"] == pen or any(x.get("nuevo") for x in p["pacientes"])
     rows.append(("parada", (p["n"], "\n".join(lines), bold), max(1, len(lines) * 0.85)))
-nota_manejo = ("Manejo: tiempos por calle según el sentido de las vías (OpenStreetMap) × 1.5 por tráfico."
+nota_manejo = ("Manejo: tiempos por calle (OpenStreetMap) con tráfico según la hora y el sentido (data/trafico.json)."
                if ruta.get("tiempos") == "calles" else
                "Manejo estimado: distancia en línea recta × 1.35 a 20 km/h promedio.")
 rows.append(("nota", nota_manejo + " Atención: 6 min por paciente.\n"

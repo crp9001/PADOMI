@@ -30,9 +30,11 @@ Este archivo y los scripts vienen del repositorio público `crp9001/PADOMI`, car
 4. **Write**, sin pensar el orden:
    - `lugares_<fec>.json`: lista con `address`, `latitude`, `longitude`, `types` y `place_id` (solo si empieza con `ChIJ`; si no, omítelo).
    - Cada respuesta de WebFetch (solo `{"code":"Ok","durations":[...]}`) en su `guardar_en`. Si una falla, sigue: el script avisa.
-5. `python3 $S/ruta_padomi.py ruta <fec> --especialista "Nombre Apellido" [--ancha "..."]` → resumen, **lista para el chat** y **argumentos del mapa**; guarda la ruta y el PNG.
+5. `python3 $S/ruta_padomi.py ruta <fec> --especialista "Nombre Apellido" [--ancha "..."] [--salida HH:MM]` → resumen, **lista para el chat** y **argumentos del mapa**; guarda la ruta y el PNG. `--salida` solo si sale a otra hora que ahora (planear la víspera o ensayar).
 6. **Solo si `revisar_grafico` no es `false`**, mira el PNG con Read; corrige `etiquetas_<fec>.json` (nunca `ruta_<fec>.json`) y corre `python3 $S/grafico_ruta.py ruta_<fec>.json etiquetas_<fec>.json <png>`.
 7. **Entrega** (abajo).
+
+**Tráfico (lo hace el script):** cada tramo usa el tiempo de calle sin tráfico × un factor según la hora en que se maneja (hora punta mañana y tarde más alto, mediodía y tarde medio), el día (sábado y domingo más bajo) y el sentido: de mañana, ir hacia el centro va cargado y salir del centro va a contraflujo; de tarde, al revés. La lista trae una línea 🚦 con la ida y el regreso. Los factores están en `<repo>/Ruta/data/trafico.json`: si el usuario dice que una franja o un sentido le tomó más o menos de lo estimado, ajústalos ahí (y súbelo con git).
 
 El script cruza el pin de Geoprog con la dirección de Google (misma calle y número, a 300 m o menos; si no, deja el pin y avisa REVISAR), junta en una parada a pacientes del mismo edificio y limpia direcciones mal escritas.
 
