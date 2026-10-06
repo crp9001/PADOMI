@@ -41,22 +41,20 @@ El script cruza el pin de Geoprog con la dirección de Google (misma calle y nú
 - Con nombre: "Hoy vas con <Nombre Apellido> (código <C. MAPA>)" y pásalo en `--especialista`.
 - Sin nombre: sigue con la ruta y al final pregunta "¿Cómo se llama la persona del código <código>?" (si no sabes el código, pregunta el C. MAPA, nunca la clave). Guarda solo **nombre y 1er apellido**: reemplaza "SIN NOMBRE" o agrega `- [stated] <código> — <Nombre Apellido>` (+ ` · Tec. Apoyo NN`). Con una lista nueva del personal, misma regla; sin nombre o "LIBRE" queda "SIN NOMBRE (preguntar)".
 
-## Entrega
-1. **Mapa:** `places_map_display_v0` con los argumentos del script, tal cual.
-2. **Gráfico:** `SendUserFile` con el PNG (`display: render`). Nunca como artifact.
-3. **Respuesta final** (sin repetirla en otro mensaje):
-   - "Hoy vas con <Nombre> (código <C. MAPA>)." + aviso de fecha si aplica.
-   - Una línea de **ida** (PADOMI → primera parada, evitando obras) y una de **retorno** (última parada → Av. Arenales → cdra 13).
-   - La **lista para el chat** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números).
-   - Obras en el recorrido, con su fuente, si las hay.
-   - **Cierre:** "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Avísame en el penúltimo (<apellido>) por el combustible. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
+## Entrega (lo urgente primero: el usuario sale apenas tiene el primer paciente)
+Apenas termina `ruta`, en este orden y sin pasos en medio:
+1. **`SendUserMessage` con el PRIMER MENSAJE** que imprimió el script, tal cual, antecedido por "Hoy vas con <Nombre> (código <C. MAPA>)." y una línea de **ida** (PADOMI → primera parada, evitando obras). Con eso ya pueden salir.
+2. **`SendUserMessage` con la lista para el chat** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números).
+3. **Gráfico:** `SendUserFile` con el PNG (`display: render`). Nunca como artifact.
+4. **Mapa:** `places_map_display_v0` con los argumentos del script, tal cual.
+5. **Respuesta final, corta:** una línea de **retorno** (última parada → Av. Arenales → cdra 13), obras en el recorrido con su fuente si las hay, y el **cierre:** "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Avísame en el penúltimo (<apellido>) por el combustible. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
 
 ## En plena ruta
 1. Si hay `cambios` y ruta del día, pregunta **"¿En qué número de paciente vas?"** (de la última lista), salvo que ya lo haya dicho.
 2. **En un mensaje:** `python3 $S/ruta_padomi.py plan <fec> --voy N` + `places_search` de las direcciones nuevas (si hay).
    - Si `plan` dice que no hay consultas, no hagas WebFetch. Si trae URLs (solo de los nuevos), WebFetch de cada una y Write en su `guardar_en`.
 3. Agrega los lugares nuevos a `lugares_<fec>.json` sin borrar los anteriores y corre `python3 $S/ruta_padomi.py ruta <fec> --voy N --especialista "..."`. Da por atendidas 1 a N, sigue desde N+1, marca 🆕 y avisa los que ya no figuran.
-4. **Entrega corta:** "Quedan X pacientes (Y nuevos)", una línea con los atendidos tachados (`~~1 Apellido~~ · ~~2 Apellido~~`), mapa (el script ya arma el día 1 con los atendidos tachados y el día 2 con lo que falta), gráfico (atendidos en gris y tachados) y la lista. El combustible pasa a la nueva penúltima. Si ya no se puede evitar volver a una zona, dilo y explica qué grupo debió ir junto.
+4. **Entrega corta, en el mismo orden de Entrega:** primero el PRIMER MENSAJE (la siguiente parada) con "Quedan X pacientes (Y nuevos)" y una línea con los atendidos tachados (`~~1 Apellido~~ · ~~2 Apellido~~`); luego la lista, el gráfico (atendidos en gris y tachados) y el mapa (el script ya arma el día 1 con los atendidos tachados y el día 2 con lo que falta). El combustible pasa a la nueva penúltima. Si ya no se puede evitar volver a una zona, dilo y explica qué grupo debió ir junto.
 5. **Solo reordenar** (mismo N, sin nuevos, por ejemplo con otra `--ancha`): corre solo `ruta <fec> --voy N`.
 6. **Sin `ruta_<fec>.json`** (otra conversación): pide su ubicación (herramienta del dispositivo) y a quiénes ya atendió; `preparar` con la lista, luego `plan` y `ruta` con `--gps=LAT,LNG --quitar "Apellido1,Apellido2"` (con `=` porque la latitud es negativa).
 

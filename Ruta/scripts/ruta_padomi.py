@@ -1029,6 +1029,14 @@ def cmd_ruta(a):
         "total_min": ruta["total_min"], "nuevos": ruta["nuevos"], "avisos": ruta["avisos"],
         "grafico": g, "revisar_grafico": revisar, "etiquetas": f"etiquetas_{fec}.json",
     }, ensure_ascii=False, indent=1))
+    # primero lo urgente: a dónde ir ahora (se manda apenas sale, antes de la lista, el mapa y el gráfico)
+    p = P[0]
+    gente = ", ".join(f"{titulo(y['paciente'])} ({y['edad']})" for y in p["pacientes"])
+    tels = " / ".join(dict.fromkeys(t for y in p["pacientes"] for t in telefonos(y["telfs"]))) or "sin teléfono"
+    ref = titulo(moda([y["ref_dom"] for y in p["pacientes"]]))
+    cab = "Ve a la" if ruta["inicio"]["tipo"] == "padomi" else "Siguiente:"
+    print("\n===== PRIMER MENSAJE (mándalo ya) =====")
+    print(f"**{cab} {p['n']}. {dir_larga(base_pac(p))}**\n{gente} · {ref} · ☎ {tels}\n[🧭 Ir]({p['nav']})")
     # todo lo que va al chat, para no tener que abrir más archivos
     print("\n===== LISTA PARA EL CHAT (lista_%s.md) =====" % fec)
     print(open(f"lista_{fec}.md", encoding="utf-8").read())
