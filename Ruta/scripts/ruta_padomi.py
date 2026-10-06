@@ -235,6 +235,7 @@ def limpiar(t, dst=""):
     t = re.sub(r"\s+", " ", t).strip()
     t = re.sub(r"\b(URB|DPTO|DPT|PSJE|AV|CA|JR|ALT|CDRA|CDR|ESQ|STA)\.(?=[A-Z0-9])", r"\1. ", t, flags=re.I)
     t = re.sub(r"\b(?:NRO|N[°º])\.?\s*(?=\d)", "", t, flags=re.I)
+    t = re.sub(r"\s*\bCEL\.?\s*\d{6,}", "", t, flags=re.I)        # teléfono metido en la dirección
     for a, b in ERRATAS.items():
         t = re.sub(rf"\b{a}\b", b, t, flags=re.I)
     if dst and len(t) > len(dst) + 8 and t.upper().endswith(" " + dst.upper()):
@@ -246,7 +247,7 @@ def partes_dir(nom_via):
     t = re.sub(r"\s+", " ", html.unescape(str(nom_via)).replace("_", " ")).strip()
     t = re.sub(r"^(CR|OT)\s+", "", t, flags=re.I)
     casa = ""
-    m = re.search(r'\s*(?:"|\bC\.\s?R\.?\s*)(.*)$', t)
+    m = re.search(r'(?:\s*"|\s*\bC\.\s?R\.?\s*|\s+CR\s+)(.*)$', t)   # 'C.R. X', '"X"' o '... CR X'
     if m:
         casa = titulo(m.group(1).replace('"', "").strip())
         casa = ("C.R. " + casa) if casa else ""
@@ -291,7 +292,7 @@ def dir_corta(p, max_c=44):
 
 def es_casa_reposo(p):
     t = sin_tildes(p["nom_via"] + " " + p["ref_dom"])
-    return bool(re.search(r"\bC\.\s?R\.|CASA DE REPOSO|ASILO|ALBERGUE|HERMANITA", t))
+    return bool(re.search(r"^CR\b|\bC\.\s?R\.|\sCR\s|CASA DE REPOSO|ASILO|ALBERGUE|HERMANITA", t))   # Geoprog: 'CR ...'
 
 def es_mz_lt(p):
     t = sin_tildes(p["nom_via"])
@@ -395,6 +396,7 @@ def construir(fec, voy, usar_lugares, gps=None, quitar=None):
                 elif tipos_ok:
                     avisos.append(f"REVISAR: el pin de Geoprog y la dirección de {pac['paciente']} están a "
                                   f"{d_aj*1000:.0f} m; se usa el pin de Geoprog")
+                    pac["revisar_m"] = int(round(d_aj * 100)) * 10
         pac["destino"] = destino
         nums, words = addr_key(pac["nom_via"])
         s = None
@@ -794,6 +796,9 @@ def lista_md(ruta, ahora):
             L.append(f"**{p['n']}. {dl} ({len(pcs)} pacientes)**")
             L.append(f"{ref} · ☎ {tel.strip()}")
             L.append("Pacientes: " + ", ".join(f"{nuevo(x)}{titulo(x['paciente'])} ({x['edad']})" for x in pcs))
+        rv = max((x.get("revisar_m") or 0 for x in pcs), default=0)
+        if rv:
+            L.append(f"⚠️ El pin de Geoprog y la dirección están a {rv} m: llama antes.")
         k = p.get("a_pie_desde")
         if k is not None:
             de = f"la {k}" if k else "donde estás"
@@ -837,7 +842,8 @@ def lista_md(ruta, ahora):
     if casas:
         N.append("Casa de reposo o asilo, avisa antes de llegar: " + ", ".join(casas) + ".")
     for a in ruta["avisos"]:
-        N.append(a)
+        if not a.startswith("REVISAR"):                # esos ya van en su parada
+            N.append(a)
     if ruta["tiempos"] != "calles":
         N.append("Orden sin tiempos por calle (línea recta).")
     if N:
