@@ -133,7 +133,8 @@ nota_manejo = ("Manejo: tiempos por calle según el sentido de las vías (OpenSt
                "Manejo estimado: distancia en línea recta × 1.35 a 20 km/h promedio.")
 rows.append(("nota", nota_manejo + " Atención: 6 min por paciente.\n"
                      "Las líneas rectas muestran el orden de visita, no el camino exacto. Para manejar usa Google Maps.\n"
-                     "Línea de puntos = a pie, sin mover la unidad. Gris y tachado = ya atendido.", 2.0))
+                     "Línea de puntos = a pie, sin mover la unidad. Gris y tachado = ya atendido.\n"
+                     "Mapa base: vías principales © colaboradores de OpenStreetMap; distritos: IGN.", 2.4))
 RH = 0.30
 leg_h = sum(r[2] for r in rows) * RH
 H = 0.95 + mh + 0.35 + leg_h + 0.25
@@ -148,9 +149,69 @@ ax.set_xticks([]); ax.set_yticks([]); ax.set_facecolor("#F4F5F2")
 for s in ax.spines.values():
     s.set_color("#B8BEC6"); s.set_linewidth(0.8)
 
-for z in et.get("zonas", []):
-    zx, zy = xy(z[1], z[2])
-    ax.text(zx, zy, z[0], fontsize=8.5, color="#9AA0A6", style="italic", ha="center", va="center", zorder=2)
+# ---------- mapa base (tenue, debajo de la ruta): límites de distritos y vías principales ----------
+import os
+import matplotlib.patheffects as pe
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+def _cargar(nombre):
+    try:
+        return json.load(open(os.path.join(DATA, nombre), encoding="utf-8"))
+    except Exception:
+        return None
+def _visible(pp, m=0.0):
+    return any(x0 - m <= x <= x1 + m and y0 - m <= y <= y1 + m for x, y in pp)
+MAPA_BASE = False
+dist = _cargar("distritos_lima.json")
+if dist:
+    nombres = {}
+    for d in dist["distritos"]:
+        pp = [xy(la, lo) for lo, la in d["l"]]
+        if not _visible(pp, 0.5):
+            continue
+        MAPA_BASE = True
+        ax.fill([p[0] for p in pp], [p[1] for p in pp], color="#FFFFFF", alpha=0.35, lw=0, zorder=0.5)
+        ax.plot([p[0] for p in pp], [p[1] for p in pp], color="#B9C0C8", lw=0.8, ls=(0, (5, 3)), zorder=0.6)
+        cx, cy = sum(p[0] for p in pp) / len(pp), sum(p[1] for p in pp) / len(pp)
+        if len(pp) > len(nombres.get(d["n"], ((0, 0), []))[1]):
+            nombres[d["n"]] = ((cx, cy), pp)
+    for n, ((cx, cy), _) in nombres.items():                      # nombre del distrito en su centro, si se ve
+        if x0 + 0.3 < cx < x1 - 0.3 and y0 + 0.3 < cy < y1 - 0.3:
+            ax.text(cx, cy, n.upper(), fontsize=8, color="#A3AAB3", ha="center", va="center", zorder=0.7,
+                    fontweight="bold", alpha=0.85)
+vias = _cargar("vias_lima.json")
+mb, rr = 0.09 * max(xspan, yspan), 0.06 * max(xspan, yspan)     # margen del borde y distancia a las paradas
+if vias:
+    rotulos = {}
+    for v in vias["vias"]:
+        pp = [xy(la, lo) for lo, la in v["l"]]
+        if not _visible(pp):
+            continue
+        MAPA_BASE = True
+        ancho = 3.4 if v["c"] == "e" else 2.4
+        ax.plot([p[0] for p in pp], [p[1] for p in pp], color="#FFFFFF", lw=ancho + 1.6, alpha=0.9, zorder=0.8,
+                solid_capstyle="round", solid_joinstyle="round")
+        ax.plot([p[0] for p in pp], [p[1] for p in pp], color="#E9B44C" if v["c"] == "e" else "#EFCB86",
+                lw=ancho, alpha=0.75, zorder=0.9, solid_capstyle="round", solid_joinstyle="round")
+        # tramo visible más largo, lejos del borde y de las paradas, para poner el nombre una sola vez
+        for a, b in zip(pp, pp[1:]):
+            mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+            if (x0 + mb < mx < x1 - mb and y0 + mb < my < y1 - mb
+                    and all(math.hypot(mx - q[0], my - q[1]) > rr for q in pts + vpts)):
+                largo = math.hypot(b[0] - a[0], b[1] - a[1])
+                if largo > rotulos.get(v["n"], (0,))[0]:
+                    rotulos[v["n"]] = (largo, mx, my, math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])))
+    for n, (largo, mx, my, ang) in rotulos.items():
+        if largo < 0.25 * max(xspan, yspan) / 6:
+            continue
+        ang = ang + 180 if ang > 90 else (ang - 180 if ang < -90 else ang)
+        ax.text(mx, my, n, fontsize=7.2, color="#8A6414", ha="center", va="center", rotation=ang,
+                rotation_mode="anchor", zorder=1.0, alpha=0.95, clip_on=True,
+                path_effects=[pe.withStroke(linewidth=2.2, foreground="white")])
+
+if not MAPA_BASE:
+    for z in et.get("zonas", []):
+        zx, zy = xy(z[1], z[2])
+        ax.text(zx, zy, z[0], fontsize=8.5, color="#9AA0A6", style="italic", ha="center", va="center", zorder=2)
 
 def seg(a, b, color, dashed=False):
     ax.plot([a[0], b[0]], [a[1], b[1]], color=color, lw=2.4, ls=(0, (4, 2)) if dashed else "-",
