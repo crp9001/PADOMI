@@ -24,7 +24,7 @@ P = ruta["paradas"]
 T = ruta["tramos"]
 dirs = et["direcciones"]
 assert len(dirs) == len(P), f"{len(dirs)} direcciones para {len(P)} paradas"
-pen = ruta.get("penultima_parada")
+pen = None   # ya no se marca el penúltimo por combustible: el grifo se sabe desde la placa del día
 INI = ruta.get("inicio", {"tipo": "padomi"})
 N0 = INI["n"] if INI.get("tipo") == "parada" else 0     # en plena ruta la numeración sigue desde N0+1
 V = ruta.get("visitadas", [])                            # paradas ya atendidas: van en gris y tachadas

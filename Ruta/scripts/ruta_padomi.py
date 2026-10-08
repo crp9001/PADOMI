@@ -29,6 +29,7 @@ ARENALES = (-12.069933, -77.037982)    # Av. Arenales cdra 5: obliga a volver po
 MIN_POR_PACIENTE = 6                   # atención aproximada por paciente
 FACTOR_CALLES = 1.35                   # línea recta -> recorrido por calles
 VEL_LIBRE_KMH = 30                     # sin tiempos por calle: línea recta x1.35 a 30 km/h sin tráfico
+MARGEN_GRIFO_KM = 0.3                  # PADOMI primero solo si queda más cerca que el grifo por más de esto
 FACTOR_TRAFICO = 1.5                   # los tiempos por calle son sin tráfico; en Lima x1.5 (= 20 km/h promedio)
 GRUPO_SEG = 150                        # pequeño grupo: paradas a 2.5 min o menos entre sí por calle (sin tráfico)
 MAX_GRUPO = 6                          # paradas como máximo por grupo
@@ -878,8 +879,6 @@ def lista_md(ruta, ahora):
         elif p.get("cerca_avenida_desde") is not None:
             L.append(f"🚗 Cerca de la {p['cerca_avenida_desde']}, pero cruzando una avenida ancha: mueve la unidad.")
         L.append(f"[🧭 Ir]({p['nav']}) · GPS `{p['gps']}`")
-        if p["n"] == pen:
-            L.append("⛽ Aquí te pregunto por el combustible.")
         L.append("")
     # tramos y tiempos
     L.append("**Tramos**")
@@ -913,7 +912,8 @@ def lista_md(ruta, ahora):
                           _tr(tr.get("regreso"), "regreso")) if p]
     if partes:
         L.append("🚦 " + " · ".join(partes))
-    L.append(f"Regreso a PADOMI por Arenales: [🧭 Ir]({ruta['nav_retorno']})")
+    rg = ruta.get("retorno_grifo")
+    L.append(rg["texto"] if rg else f"Regreso a PADOMI por Arenales: [🧭 Ir]({ruta['nav_retorno']})")
     L.append("")
     # notas de acceso
     N = []
@@ -958,13 +958,26 @@ def mapa_json(ruta):
             loc["place_id"] = p["place_id"]
         if p.get("a_pie_desde") is not None:
             loc["notes"] += f" · a pie desde la {p['a_pie_desde']}" if p["a_pie_desde"] else " · a pie desde donde estás"
-        if p["n"] == ruta["penultima_parada"]:
-            loc["notes"] += " · combustible"
         locs.append(loc)
-    locs.append({"name": "Retorno por Av. Arenales", "latitude": ARENALES[0], "longitude": ARENALES[1],
-                 "notes": "Punto de paso, cdra 5"})
-    locs.append({"name": "PADOMI (llegada)", "latitude": PADOMI[0], "longitude": PADOMI[1],
-                 "place_id": PADOMI_PID, "notes": "Av. Arenales cdra 13"})
+    rg = ruta.get("retorno_grifo")
+    padomi_fin = {"name": "PADOMI (llegada)", "latitude": PADOMI[0], "longitude": PADOMI[1],
+                  "place_id": PADOMI_PID, "notes": "Av. Arenales cdra 13"}
+    if rg:
+        g = rg["grifo"]
+        grifo = {"name": f"⛽ Grifo {g.get('nombre') or ''}".strip(), "latitude": g["lat"], "longitude": g["lng"],
+                 "notes": "Recarga de combustible"}
+        if g.get("place_id"):
+            grifo["place_id"] = g["place_id"]
+        if rg["orden"] == "grifo_primero":
+            locs += [grifo, padomi_fin]
+        else:                                          # PADOMI más cerca: dejar al especialista, luego el grifo
+            locs += [{"name": "Retorno por Av. Arenales", "latitude": ARENALES[0], "longitude": ARENALES[1],
+                      "notes": "Punto de paso, cdra 5"},
+                     dict(padomi_fin, name="PADOMI (deja al especialista)"), grifo, padomi_fin]
+    else:
+        locs.append({"name": "Retorno por Av. Arenales", "latitude": ARENALES[0], "longitude": ARENALES[1],
+                     "notes": "Punto de paso, cdra 5"})
+        locs.append(padomi_fin)
     dias = [{"day_number": 1, "title": " → ".join(distritos_ruta(ruta, 4)), "locations": locs}]
     V = ruta.get("visitadas", [])
     if V:   # en plena ruta: día 1 = ya atendidos (tachados), día 2 = lo que falta
@@ -1094,6 +1107,61 @@ def cmd_plan(a):
                       "consultas": [{"url": c["url"], "guardar_en": c["archivo"]} for c in plan["consultas"]]},
                      ensure_ascii=False, indent=1))
 
+def plan_retorno(ruta, g):
+    """Regreso con recarga (pedido del usuario, 08/10/2026). Desde la última parada: si el grifo queda más
+    cerca que PADOMI, se pasa primero por el grifo; si PADOMI queda más cerca, primero se deja al
+    especialista en PADOMI y luego se va al grifo. Si están casi igual de cerca (MARGEN_GRIFO_KM), va el
+    grifo primero: así no hay que salir de PADOMI y volver."""
+    ult = ruta["paradas"][-1]
+    u = (ult["lat"], ult["lng"])
+    km_g, km_p = hav(u, (g["lat"], g["lng"])), hav(u, PADOMI)
+    nav_g = f"{NAV}&destination={g['lat']:.6f},{g['lng']:.6f}" + \
+            (f"&destination_place_id={g['place_id']}" if g.get("place_id") else "")
+    nav_p = f"{NAV}&destination={PADOMI[0]:.6f},{PADOMI[1]:.6f}&destination_place_id={PADOMI_PID}"
+    nom = f"Grifo {g['nombre']}" if g.get("nombre") else "Grifo"
+    if km_p + MARGEN_GRIFO_KM >= km_g:                  # casi igual de cerca: el grifo primero ahorra la vuelta
+        orden = "grifo_primero"
+        texto = (f"Regreso con recarga (desde la {ult['n']} el grifo queda antes que PADOMI): "
+                 f"[⛽ 1. {nom}]({nav_g}) → [🧭 2. PADOMI]({nav_p})")
+    else:
+        orden = "padomi_primero"
+        texto = (f"Regreso con recarga (desde la {ult['n']} PADOMI queda más cerca que el grifo): "
+                 f"[🧭 1. PADOMI por Arenales]({ruta['nav_retorno']}), deja al especialista → "
+                 f"[⛽ 2. {nom}]({nav_g}) → [🧭 3. PADOMI]({nav_p})")
+    return {"grifo": g, "orden": orden, "km_linea_recta_grifo": round(km_g, 2),
+            "km_linea_recta_padomi": round(km_p, 2), "texto": texto}
+
+def leer_grifo(fec):
+    try:
+        return leer(f"grifo_{fec}.json")
+    except (OSError, ValueError):
+        return None
+
+def cmd_grifo(a):
+    """Guarda el grifo de la unidad del día y arma el regreso con recarga sobre la ruta ya calculada."""
+    fec = a.fec
+    v = [x.strip() for x in a.en.split(",")]
+    g = {"lat": float(v[0]), "lng": float(v[1]), "nombre": a.nombre or ""}
+    if len(v) > 2 and v[2].startswith("ChIJ"):
+        g["place_id"] = v[2]
+    guardar(f"grifo_{fec}.json", g)
+    try:
+        ruta = leer(f"ruta_{fec}.json")
+    except OSError:
+        print(json.dumps({"grifo": g, "nota": "Grifo guardado; aún no hay ruta de ese día: sale en la próxima 'ruta'."},
+                         ensure_ascii=False))
+        return
+    ruta["retorno_grifo"] = plan_retorno(ruta, g)
+    guardar(f"ruta_{fec}.json", ruta)
+    with open(f"lista_{fec}.md", "w", encoding="utf-8") as f:
+        f.write(lista_md(ruta, hora_lima()))
+    guardar(f"mapa_{fec}.json", mapa_json(ruta))
+    rg = ruta["retorno_grifo"]
+    print(json.dumps({k: rg[k] for k in ("orden", "km_linea_recta_grifo", "km_linea_recta_padomi")},
+                     ensure_ascii=False))
+    print("\n===== REGRESO CON RECARGA (mándalo) =====")
+    print(rg["texto"])
+
 def cmd_ruta(a):
     fec = a.fec
     salida = None
@@ -1107,6 +1175,9 @@ def cmd_ruta(a):
     ahora = salida or hora_lima()
     ruta["prof"] = B["data"].get("prof", "") if isinstance(B["data"], dict) else ""
     ruta["especialista"] = a.especialista
+    g = leer_grifo(fec)                                   # grifo de la unidad del día (comando 'grifo')
+    if g:
+        ruta["retorno_grifo"] = plan_retorno(ruta, g)
     guardar(f"ruta_{fec}.json", ruta)
     with open(f"lista_{fec}.md", "w", encoding="utf-8") as f:
         f.write(lista_md(ruta, ahora))
@@ -1154,5 +1225,8 @@ for p_ in (p2, p3):
 p3.add_argument("--especialista"); p3.add_argument("--sin-grafico", action="store_true")
 p3.add_argument("--salida", help="HH:MM de salida para planear o ensayar (por defecto, ahora)")
 p3.add_argument("--ancha", help="calles que el usuario dice que son anchas o peligrosas de cruzar a pie, separadas por comas")
+p4 = sub.add_parser("grifo"); p4.add_argument("fec")
+p4.add_argument("--en", required=True, help="--en=LAT,LNG[,PLACE_ID] (con =, porque empieza con signo menos)")
+p4.add_argument("--nombre", help="nombre corto del grifo, p. ej. Repsol")
 A = ap.parse_args()
-{"preparar": cmd_preparar, "plan": cmd_plan, "ruta": cmd_ruta}[A.cmd](A)
+{"preparar": cmd_preparar, "plan": cmd_plan, "ruta": cmd_ruta, "grifo": cmd_grifo}[A.cmd](A)
