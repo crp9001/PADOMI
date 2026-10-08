@@ -796,12 +796,24 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
                    f"&waypoints={ARENALES[0]:.6f},{ARENALES[1]:.6f}")
 
     n_par = len(paradas)
+    # la 1ª parada ya va con el 🧭 del PRIMER MENSAJE: el 🗺️ del tramo 1 arranca en la siguiente
+    # (pedido del usuario, 08/10/2026). Los demás tramos siguen de 5 en 5 (6-10, 11-15...).
+    primera = None
+    if n_par > 1:
+        p0 = paradas[0]
+        primera = {"n": p0["n"], "pacientes": len(p0["pacientes"]), "enlace": p0["nav"],
+                   "km_calles_est": round(D[seq_nodes[0]][seq_nodes[1]] * FACTOR_CALLES, 1),
+                   "manejo_min": int(round(leg_min[1])),
+                   "atencion_min": len(p0["pacientes"]) * MIN_POR_PACIENTE}
+        primera["total_min"] = primera["manejo_min"] + primera["atencion_min"]
     tramos = []
     for k in range(1, max(1, math.ceil(n_par / PARADAS_POR_TRAMO)) + 1):
         stops_k = paradas[(k - 1) * PARADAS_POR_TRAMO: k * PARADAS_POR_TRAMO]
         legs = [j for j in range(1, n_par + 1) if (j - 1) // PARADAS_POR_TRAMO + 1 == k]
         if k * PARADAS_POR_TRAMO >= n_par:
             legs.append(n_par + 1)
+        if k == 1 and primera:                            # sin la 1ª parada: esa ya tiene su 🧭
+            stops_k, legs = stops_k[1:], [j for j in legs if j != 1]
         # en el enlace van solo las paradas a las que se mueve la unidad (las de a pie no)
         manejo_k = [p for p in stops_k if p.get("a_pie_desde") is None] or stops_k[-1:]
         c = [f"{p['lat']:.5f},{p['lng']:.5f}" for p in manejo_k]   # enlace corto: solo coordenadas, separador %7C
@@ -817,8 +829,9 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         "fec": fec, "inicio": inicio, "visitadas": B["visitadas"], "paradas": paradas,
         "penultima_parada": paradas[-2]["n"] if len(paradas) >= 2 else None,
         "km_linea_recta_total": round(sum(D[a][b] for a, b in zip(seq_nodes, seq_nodes[1:])), 1),
-        "nav_retorno": nav_retorno, "tiempos": tiempos, "grupos": grupos, "tramos": tramos,
-        "total_min": sum(r5(t["manejo_min"]) + t["atencion_min"] for t in tramos),
+        "nav_retorno": nav_retorno, "tiempos": tiempos, "grupos": grupos, "primera": primera, "tramos": tramos,
+        "total_min": sum(r5(t["manejo_min"]) + t["atencion_min"] for t in tramos)
+                     + (r5(primera["manejo_min"]) + primera["atencion_min"] if primera else 0),
         "paradas_ajustadas_a_direccion": [{"n": p["n"], "direccion": p["destino"]["direccion"],
                                            "ajuste_m": p["destino"]["ajuste_m"]} for p in paradas if p.get("destino")],
         "nuevos": [x["paciente"] for p in paradas for x in p["pacientes"] if x.get("nuevo")],
@@ -870,6 +883,12 @@ def lista_md(ruta, ahora):
         L.append("")
     # tramos y tiempos
     L.append("**Tramos**")
+    pr = ruta.get("primera")
+    if pr:                                             # la 1ª parada va sola, con el 🧭 del primer mensaje
+        man = r5(pr["manejo_min"])
+        mtxt = f"manejo ~{fmt(man)}" if man else "muy cerca"
+        L.append(f"[🧭 Parada {pr['n']}]({pr['enlace']}) (la del primer mensaje) · {mtxt} + atención "
+                 f"{fmt(pr['atencion_min'])} = {fmt(man + pr['atencion_min'])}")
     for t in ruta["tramos"]:
         ps = t["paradas"]
         rango = f"paradas {ps[0]} a {ps[-1]}" if len(ps) > 1 else f"parada {ps[0]}"

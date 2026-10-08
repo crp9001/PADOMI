@@ -33,6 +33,9 @@ GRIS = "#9CA3AF"
 
 COLS = ["#0F766E", "#6D28D9", "#C2410C", "#1D4ED8", "#BE185D", "#4D7C0F"]
 TR = {n: t["tramo"] for t in T for n in t["paradas"]}   # parada -> tramo (tramos de 5 paradas, del script)
+PR = ruta.get("primera")                                 # 1ª parada (🧭 del primer mensaje): color del tramo 1
+if PR and T:
+    TR.setdefault(PR["n"], T[0]["tramo"])
 def tramo_de(n):
     return TR.get(n, T[-1]["tramo"] if T else 1)
 def col(k):
@@ -94,6 +97,11 @@ if mh > 7.6:
 
 # ---------- leyenda: filas ----------
 rows = []  # (tipo, datos, alto en filas)
+if PR and T:
+    man = r5(PR["manejo_min"])
+    rows.append(("tramo", (T[0]["tramo"], f"Parada {PR['n']} (la del primer mensaje): "
+                 + (f"manejo ~{fmt(man)}" if man else "muy cerca")
+                 + f" + atención {fmt(PR['atencion_min'])} = {fmt(man + PR['atencion_min'])}"), 1))
 for t in T:
     man = r5(t["manejo_min"]); tot = man + t["atencion_min"]
     ps = t["paradas"]
@@ -102,7 +110,8 @@ for t in T:
     txt = (f"Tramo {t['tramo']} ({rango}{extra}): manejo ~{fmt(man)} + atención "
            f"{fmt(t['atencion_min'])} ({t['pacientes']} pac.) = {fmt(tot)}")
     rows.append(("tramo", (t["tramo"], txt), 1))
-total = sum(r5(t["manejo_min"]) + t["atencion_min"] for t in T)
+total = sum(r5(t["manejo_min"]) + t["atencion_min"] for t in T) \
+    + (r5(PR["manejo_min"]) + PR["atencion_min"] if PR else 0)
 npac = sum(len(p["pacientes"]) for p in P)
 rows.append(("total", (f"Tiempo restante estimado: {fmt(total)}  ({npac} pacientes por atender × 6 min + manejo)" if HAY_INI
                        else f"Tiempo total estimado: {fmt(total)}  ({npac} pacientes × 6 min + manejo)"), 1.2))

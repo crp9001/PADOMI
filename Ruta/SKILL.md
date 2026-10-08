@@ -46,7 +46,7 @@ El script cruza el pin de Geoprog con la dirección de Google (misma calle y nú
 ## Entrega (lo urgente primero: el usuario sale apenas tiene el primer paciente)
 Apenas termina `ruta`, en este orden y sin pasos en medio:
 1. **`SendUserMessage` con el PRIMER MENSAJE** que imprimió el script, tal cual, antecedido por "Hoy vas con <Nombre> (código <C. MAPA>)." y una línea de **ida** (PADOMI → primera parada, evitando obras). Con eso ya pueden salir.
-2. **`SendUserMessage` con la lista para el chat** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números).
+2. **`SendUserMessage` con la lista para el chat** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números). En "Tramos", la 1ª parada va sola con su 🧭 (la del primer mensaje) y el **🗺️ Tramo 1 arranca en la 2** (2 a 5; luego 6 a 10…): al terminar la 1, se abre el tramo 1 (pedido del usuario). En plena ruta igual: la siguiente parada va con su 🧭 y el tramo 1 empieza en la que sigue.
 3. **Gráfico:** `SendUserFile` con el PNG (`display: render`). Nunca como artifact. Lleva de fondo, tenue, el mapa con los distritos y las vías principales (`<repo>/Ruta/data/`), con los números y colores de tramo encima.
 4. **Mapa:** `places_map_display_v0` con los argumentos del script, tal cual.
 5. **Respuesta final, corta:** una línea de **retorno** (última parada → Av. Arenales → cdra 13), obras en el recorrido con su fuente si las hay, y el **cierre:** "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Avísame en el penúltimo (<apellido>) por el combustible. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
