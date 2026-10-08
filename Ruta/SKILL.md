@@ -45,7 +45,7 @@ El script cruza el pin de Geoprog con la dirección de Google (misma calle y nú
 
 ## Entrega (lo urgente primero: el usuario sale apenas tiene el primer paciente)
 Apenas termina `ruta`, en este orden y sin pasos en medio:
-1. **`SendUserMessage` con el PRIMER MENSAJE** que imprimió el script, tal cual, antecedido por "Hoy vas con <Nombre> (código <C. MAPA>)." y una línea de **ida** (PADOMI → primera parada, evitando obras). Con eso ya pueden salir.
+1. **`SendUserMessage` con el PRIMER MENSAJE** que imprimió el script, tal cual, antecedido por "Hoy vas con <Nombre> (código <C. MAPA>)." y una línea de **ida** (PADOMI → primera parada, evitando obras). Con eso ya pueden salir. Cierra ese mismo mensaje con **"🚐 ¿Qué placa tiene hoy la unidad?"** (salvo que ya la haya dado hoy; ver **Combustible**).
 2. **`SendUserMessage` con la lista para el chat** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números). En "Tramos", la 1ª parada va sola con su 🧭 (la del primer mensaje) y el **🗺️ Tramo 1 arranca en la 2** (2 a 5; luego 6 a 10…): al terminar la 1, se abre el tramo 1 (pedido del usuario). En plena ruta igual: la siguiente parada va con su 🧭 y el tramo 1 empieza en la que sigue.
 3. **Gráfico:** `SendUserFile` con el PNG (`display: render`). Nunca como artifact. Lleva de fondo, tenue, el mapa con los distritos y las vías principales (`<repo>/Ruta/data/`), con los números y colores de tramo encima.
 4. **Mapa:** `places_map_display_v0` con los argumentos del script, tal cual.
@@ -60,8 +60,14 @@ Apenas termina `ruta`, en este orden y sin pasos en medio:
 5. **Solo reordenar** (mismo N, sin nuevos, por ejemplo con otra `--ancha`): corre solo `ruta <fec> --voy N`.
 6. **Sin `ruta_<fec>.json`** (otra conversación): pide su ubicación (herramienta del dispositivo) y a quiénes ya atendió; `preparar` con la lista, luego `plan` y `ruta` con `--gps=LAT,LNG --quitar "Apellido1,Apellido2"` (con `=` porque la latitud es negativa).
 
-## Combustible (penúltimo paciente)
-Pregunta "¿Vas a recargar combustible antes de regresar a PADOMI?". **Sí:** si la memoria no tiene su combustible y grifo preferido, pregúntalo una vez y guárdalo; busca 2 o 3 grifos de ese tipo sobre el camino de regreso, abiertos a esa hora, y da el 🧭 del que no obligue a desviarse (`https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination=<lat>,<lng>&destination_place_id=<place_id>`) y el de regreso. **No:** recuérdale el 🧭 del último paciente y el de regreso.
+## Combustible (placa del día y penúltimo paciente)
+Se recarga solo en **dos grifos fijos**, cada uno con sus combustibles, y la unidad asignada cambia. Los grifos y el registro **placa → grifo** están en la memoria (secciones "Grifos" y "Unidades"); no van a este repositorio.
+- **Placa** (la preguntas al cerrar el PRIMER MENSAJE): escríbela en mayúsculas, sin espacios ni guion, y búscala en "Unidades".
+  - Registrada: una línea, "Esta unidad recarga <combustible> en el grifo <nombre>."
+  - Nueva: pregunta "¿En qué grifo recarga esta unidad: <grifo 1> (<sus combustibles>) o <grifo 2> (<sus combustibles>)?" con los datos de "Grifos", y agrega `- [stated] <PLACA> — <Grifo> (<combustible, si lo dijo>)` en "Unidades". Si dice el combustible en vez del grifo, el grifo sale de "Grifos".
+- **Penúltimo paciente:** pregunta "¿Vas a recargar combustible antes de regresar a PADOMI?".
+  - **Sí:** para después del último paciente, da el 🧭 al grifo de esa unidad (`https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination=<lat>,<lng>&destination_place_id=<place_id>`) y luego el 🧭 directo a PADOMI (`https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination=-12.078246,-77.036811&destination_place_id=ChIJxaPv7bbJBZERIZPpt74sv7E`, sin punto de paso: los grifos ya están sobre Arenales). Si no se sabe la placa o el grifo, pregunta a cuál de los dos va. Si un grifo de la memoria no tiene coordenadas, sácalas de su enlace (WebFetch: la redirección trae `/place/<lat>,<lng>`) y guárdalas.
+  - **No:** recuérdale el 🧭 del último paciente y el de regreso.
 
 ## Ubicación
 No hay GPS en segundo plano. Si pregunta "¿cómo voy?", pide su ubicación con la herramienta del dispositivo y dile la siguiente parada, la distancia y si hay que llamar antes. Recuérdale escribir solo detenido.
