@@ -1,0 +1,8 @@
+{
+ "nota": "Accesos de EsSalud (PADOMI) para el regreso. El script elige el que tome menos tiempo desde la última parada (tiempos por calle: respeta el sentido de las calles) y lo usa para dejar al especialista.",
+ "accesos": [
+  {"id": "ACC1", "n": 1, "nombre": "Av. Arenales 1502", "lat": -12.0801128, "lng": -77.0364753},
+  {"id": "ACC2", "n": 2, "nombre": "Jr. Domingo Cueto 120", "lat": -12.079706, "lng": -77.0369314, "place_id": "ChIJQ7lgePTIBZER5HljGzJomRU"},
+  {"id": "ACC3", "n": 3, "nombre": "Jr. Coronel Zegarra 198", "lat": -12.0770038, "lng": -77.038055}
+ ]
+}

@@ -1,13 +1,13 @@
 ---
 name: ruta-padomi
-description: "Arma la ruta diaria de visitas PADOMI (EsSalud) desde Geoprog: un solo circuito desde y hacia PADOMI Av. Arenales. Úsala cuando el usuario pida su ruta PADOMI, Geoprog o la ruta del día, o pegue un texto que empieza con RUTA PADOMI."
+description: "Arma la ruta diaria de visitas PADOMI (EsSalud) desde Geoprog: un solo circuito desde PADOMI (Av. Arenales) y de vuelta a EsSalud. Úsala cuando el usuario pida su ruta PADOMI, Geoprog o la ruta del día, o pegue un texto que empieza con RUTA PADOMI."
 ---
 
 # Ruta PADOMI (v3)
 
 ## Contexto
 - El usuario es el **conductor** de una unidad PADOMI; el especialista que va con él (doctor, licenciado o técnico) cambia. Registro de especialistas y preferencias: memoria `/areas/padomi-conductor.md`.
-- **Salida y llegada:** PADOMI, Av. Arenales 1302, Jesús María. **Retorno siempre por Av. Arenales** (el script pone un punto de paso en la cdra 5).
+- **Salida:** PADOMI, Av. Arenales 1302, Jesús María. **Llegada:** EsSalud tiene 3 accesos (`data/accesos.json`); el script elige el que tome menos tiempo desde la última parada (los tiempos por calle respetan el sentido de las calles; el tráfico va por hora y sentido) y el 🧭 de regreso va a ese acceso.
 - Todo lo hace **desde el celular** mientras trabaja: respuestas cortas, en español, fáciles de leer. Es común que **agreguen pacientes en el camino**.
 
 ## Reglas fijas
@@ -49,7 +49,7 @@ Apenas termina `ruta`, en este orden y sin pasos en medio:
 2. **`SendUserMessage` con la lista para el chat** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números). En "Tramos", la 1ª parada va sola con su 🧭 (la del primer mensaje) y el **🗺️ Tramo 1 arranca en la 2** (2 a 5; luego 6 a 10…): al terminar la 1, se abre el tramo 1 (pedido del usuario). En plena ruta igual: la siguiente parada va con su 🧭 y el tramo 1 empieza en la que sigue.
 3. **Gráfico:** `SendUserFile` con el PNG (`display: render`). Nunca como artifact. Lleva de fondo, tenue, el mapa con los distritos y las vías principales (`<repo>/Ruta/data/`), con los números y colores de tramo encima.
 4. **Mapa:** `places_map_display_v0` con los argumentos del script, tal cual.
-5. **Respuesta final, corta:** una línea de **retorno** (última parada → Av. Arenales → cdra 13; o el regreso con recarga, si ya se sabe el grifo), obras en el recorrido con su fuente si las hay, y el **cierre:** "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
+5. **Respuesta final, corta:** una línea de **retorno** (última parada → acceso de EsSalud que eligió el script; o el regreso con recarga, si ya se sabe), obras en el recorrido con su fuente si las hay, y el **cierre:** "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
 
 ## En plena ruta
 1. Si hay `cambios` y ruta del día, pregunta **"¿En qué número de paciente vas?"** (de la última lista), salvo que ya lo haya dicho.
@@ -60,14 +60,17 @@ Apenas termina `ruta`, en este orden y sin pasos en medio:
 5. **Solo reordenar** (mismo N, sin nuevos, por ejemplo con otra `--ancha`): corre solo `ruta <fec> --voy N`.
 6. **Sin `ruta_<fec>.json`** (otra conversación): pide su ubicación (herramienta del dispositivo) y a quiénes ya atendió; `preparar` con la lista, luego `plan` y `ruta` con `--gps=LAT,LNG --quitar "Apellido1,Apellido2"` (con `=` porque la latitud es negativa).
 
-## Combustible (placa del día → grifo)
-Se recarga en uno de **dos grifos fijos** y la unidad asignada cambia. Los grifos (nombre, combustibles, coordenadas, place_id) y el registro **placa → grifo** están en la memoria (secciones "Grifos" y "Unidades"); no van a este repositorio. **Ya no se pregunta en el penúltimo paciente**: el grifo se sabe desde la placa.
-- **Placa** (la preguntas al cerrar el PRIMER MENSAJE): escríbela en mayúsculas, sin espacios ni guion, y búscala en "Unidades".
-  - Registrada: corre `python3 $S/ruta_padomi.py grifo <fec> --en=LAT,LNG,PLACE_ID --nombre "<Grifo>"` (con `=`, porque la latitud es negativa) y manda "Esta unidad recarga <combustible> en el grifo <nombre>." + la línea **REGRESO CON RECARGA** que imprime, tal cual.
-  - Nueva: pregunta "¿En qué grifo recarga esta unidad: <grifo 1> (<sus combustibles>) o <grifo 2> (<sus combustibles>)?" con los datos de "Grifos"; con la respuesta, agrega `- [stated] <PLACA> — <Grifo> (<combustible, si lo dijo>)` en "Unidades" y corre `grifo` igual. Si dice el combustible en vez del grifo, el grifo sale de "Grifos".
-  - Si un grifo de la memoria no tiene coordenadas, sácalas de su enlace (WebFetch: la redirección trae `/place/<lat>,<lng>` o el nombre y la dirección, y con eso `places_search`) y guárdalas.
-- **Regreso con recarga (lo arma el script):** desde la última parada, si el grifo queda antes que PADOMI (o casi igual de cerca: margen de 300 m en línea recta), va **el grifo primero** y luego PADOMI; si PADOMI queda más cerca, **primero se deja al especialista en PADOMI**, luego el grifo y de vuelta a PADOMI (pedido del usuario). `grifo_<fec>.json` queda guardado: los recálculos (`ruta --voy N`) ya traen ese regreso en la lista y en el mapa.
-- Si no dio la placa, la lista queda con el regreso normal; vuelve a preguntarla una vez en la siguiente entrega.
+## Combustible (placa del día → ¿recarga? → grifo)
+Se recarga en uno de **dos grifos fijos** y la unidad asignada cambia. Los grifos (nombre, combustibles, coordenadas, place_id) y el registro **placa → grifo** están en la memoria (secciones "Grifos" y "Unidades"); no van a este repositorio. **No se pregunta en el penúltimo paciente**: todo se define después del 1er paciente.
+1. **Placa** (la preguntas al cerrar el PRIMER MENSAJE): escríbela en mayúsculas, sin espacios ni guion, y búscala en "Unidades".
+   - Registrada: en un solo mensaje, "Esta unidad carga <combustible> en el grifo <nombre>. **¿Vas a recargar combustible hoy?**"
+   - Nueva: en un solo mensaje, "**¿Qué combustible usa esta unidad?** (<grifo 1>: <sus combustibles> · <grifo 2>: <sus combustibles>) **¿Vas a recargar hoy?**". Con la respuesta, agrega `- [stated] <PLACA> — <Grifo> (<combustible>)` en "Unidades"; el grifo sale del combustible según "Grifos".
+2. **¿Recarga?** A veces el tanque está lleno.
+   - **Sí:** `python3 $S/ruta_padomi.py grifo <fec> --en=LAT,LNG,PLACE_ID --nombre "<Grifo>"` (con `=`, porque la latitud es negativa) y manda la línea **REGRESO CON RECARGA** que imprime, tal cual.
+   - **No:** el regreso de la lista ya va directo al acceso de EsSalud más rápido. Si antes había dicho que sí, corre `grifo <fec> --ninguno` y manda la línea **REGRESO SIN RECARGA**.
+   - Sin respuesta: queda el regreso sin recarga; vuelve a preguntar una vez en la siguiente entrega.
+3. **Regreso con recarga (lo arma el script):** desde la última parada, si el grifo queda antes que EsSalud (o casi igual de cerca: margen de 300 m en línea recta), va **el grifo primero** y luego el acceso más cercano al grifo; si EsSalud queda más cerca, **primero se deja al especialista** en el acceso más rápido, luego el grifo y de vuelta al acceso más cercano al grifo (pedido del usuario). `grifo_<fec>.json` queda guardado: los recálculos (`ruta --voy N`) ya traen ese regreso en la lista y en el mapa.
+4. Si un grifo de la memoria no tiene coordenadas, sácalas de su enlace (WebFetch: la redirección trae `/place/<lat>,<lng>` o el nombre y la dirección, y con eso `places_search`) y guárdalas.
 
 ## Ubicación
 No hay GPS en segundo plano. Si pregunta "¿cómo voy?", pide su ubicación con la herramienta del dispositivo y dile la siguiente parada, la distancia y si hay que llamar antes. Recuérdale escribir solo detenido.

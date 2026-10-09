@@ -66,6 +66,9 @@ def xy(la, lo):
 pts = [xy(p["lat"], p["lng"]) for p in P]
 vpts = [xy(p["lat"], p["lng"]) for p in V]
 pad, are = xy(*PADOMI), xy(*ARENALES)
+ACC = ruta.get("acceso")                                 # acceso de EsSalud elegido para el regreso
+acc = xy(ACC["lat"], ACC["lng"]) if ACC else are
+RET = f"Retorno a EsSalud\n(acceso {ACC['n']})" if ACC and ACC.get("n") else "Retorno a PADOMI\npor Av. Arenales"
 HAY_INI = INI.get("tipo") in ("parada", "gps")          # se parte de donde está el usuario
 ini = xy(INI["lat"], INI["lng"]) if HAY_INI else None
 xs = [p[0] for p in pts + vpts] + ([ini[0]] if ini else [])
@@ -263,23 +266,26 @@ if ini:
 if padomi_dentro:
     if not ini:
         seg(pad, pts[0], col(1))
-    seg(pts[-1], are, last_col, dashed=True); seg(are, pad, last_col, dashed=True)
+    if ACC:
+        seg(pts[-1], acc, last_col, dashed=True)
+    else:
+        seg(pts[-1], are, last_col, dashed=True); seg(are, pad, last_col, dashed=True)
     ax.plot(*pad, marker="s", ms=13, color=INK, zorder=9)
     ax.text(pad[0], pad[1], "P", color="white", fontsize=8, fontweight="bold", ha="center", va="center", zorder=10)
     lado = -1 if pad[0] > (x0 + x1) / 2 else 1   # el texto hacia el centro del mapa
     ax.text(pad[0] + 0.25 * lado, pad[1] - 0.25, "PADOMI", fontsize=8.5, color=INK, fontweight="bold", va="top",
             ha="left" if lado > 0 else "right", zorder=10)
 else:
-    e_in = borde(pts[0], pad); e_out = borde(pts[-1], are)
+    e_in = borde(pts[0], pad); e_out = borde(pts[-1], acc)
     if not ini:
         seg(e_in, pts[0], col(1), dashed=True)
     seg(pts[-1], e_out, last_col, dashed=True)
     km_pad = math.hypot(pad[0] - pts[0][0], pad[1] - pts[0][1])
     etiquetas_borde = ([] if ini else [(e_in, f"Desde PADOMI\n(Av. Arenales, ~{km_pad:.0f} km)", col(1))]) + \
-                      [(e_out, "Retorno a PADOMI\npor Av. Arenales", last_col)]
+                      [(e_out, RET, last_col)]
     if not ini and math.hypot(e_in[0] - e_out[0], e_in[1] - e_out[1]) < 0.12 * max(xspan, yspan):
         # ida y retorno salen por el mismo lado: una sola etiqueta para que no se monten
-        etiquetas_borde = [(e_in, f"PADOMI: ida y retorno\npor Av. Arenales (~{km_pad:.0f} km)", INK)]
+        etiquetas_borde = [(e_in, f"PADOMI: ida y retorno\n(~{km_pad:.0f} km)", INK)]
     for k_, (ep, txt, c) in enumerate(etiquetas_borde, 0 if not ini else 1):
         dist_edges = {"left": ep[0] - x0, "right": x1 - ep[0], "bottom": ep[1] - y0, "top": y1 - ep[1]}
         edge = min(dist_edges, key=dist_edges.get)

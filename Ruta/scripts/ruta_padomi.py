@@ -25,7 +25,7 @@ from urllib.parse import quote
 
 PADOMI = (-12.0782458, -77.0368112)    # Av. Arenales 1302, Jesús María
 PADOMI_PID = "ChIJxaPv7bbJBZERIZPpt74sv7E"
-ARENALES = (-12.069933, -77.037982)    # Av. Arenales cdra 5: obliga a volver por Arenales
+ARENALES = (-12.069933, -77.037982)    # Av. Arenales cdra 5 (solo para el gráfico si no hay accesos)
 MIN_POR_PACIENTE = 6                   # atención aproximada por paciente
 FACTOR_CALLES = 1.35                   # línea recta -> recorrido por calles
 VEL_LIBRE_KMH = 30                     # sin tiempos por calle: línea recta x1.35 a 30 km/h sin tráfico
@@ -58,6 +58,21 @@ DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
 
 # ---------------------------------------------------------------- utilidades
+def cargar_accesos():
+    """accesos de EsSalud para el regreso (data/accesos.json); sin el archivo, el pin de PADOMI"""
+    try:
+        acc = json.load(open(os.path.join(AQUI, "..", "data", "accesos.json"), encoding="utf-8"))["accesos"]
+        assert acc
+        return acc
+    except Exception:
+        return [{"id": "PADOMI", "n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1], "place_id": PADOMI_PID}]
+
+def nav_a(lat, lng, pid=None):
+    return f"{NAV}&destination={lat:.6f},{lng:.6f}" + (f"&destination_place_id={pid}" if pid and str(pid).startswith("ChIJ") else "")
+
+def nombre_acceso(a):
+    return f"EsSalud, acceso {a['n']} ({a['nombre']})" if a.get("n") else "PADOMI"
+
 def hav(a, b):
     R = 6371.0
     p1, p2 = math.radians(a[0]), math.radians(b[0])
@@ -483,6 +498,8 @@ def hacer_plan(fec, voy, gps=None, quitar=None):
     uniq = {}
     for i, pt in zip(ids, [B["start"]] + [(s["lat"], s["lng"]) for s in B["stops"]] + [PADOMI]):
         uniq.setdefault(i, pt)
+    for a in cargar_accesos():                            # regreso: tiempo de cada parada a cada acceso
+        uniq.setdefault(a["id"], (a["lat"], a["lng"]))
     keys, t = list(uniq), cache["t"]
     falta = lambda a, b: a != b and f"{a}|{b}" not in t
     conocidos = {k.split("|")[0] for k in t}
@@ -640,6 +657,20 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         avisos.append(f"TIEMPOS POR CALLE: {malos} de {N * (N - 1)} tiempos faltaban o no eran creíbles; ahí se usó línea recta")
     tiempos = "calles" if hay else "linea_recta"
 
+    # regreso: desde cada parada, al acceso de EsSalud que tome menos tiempo (los tiempos por calle respetan
+    # el sentido de las calles; sin ellos, línea recta). Así el orden también busca terminar bien ubicado.
+    ACC = cargar_accesos()
+    acc_t = {}
+    for i in range(n + 1):
+        for k, a in enumerate(ACC):
+            pa = (a["lat"], a["lng"])
+            est = hav(pts[i], pa) * FACTOR_CALLES / VEL_LIBRE_KMH * 3600
+            v = tc.get(f"{ids[i]}|{a['id']}")
+            ok = v is not None and hav(pts[i], pa) / 110 * 3600 * 0.9 <= v <= max(900, 6 * est)
+            acc_t[(i, k)] = (v, "calles") if ok else (est, "linea_recta")
+    for i in range(n + 1):
+        T[i][E] = min(acc_t[(i, k)][0] for k in range(len(ACC)))
+
     # a pie: a 150 m o menos y sin cruzar una avenida ancha, la unidad no se mueve y el especialista cruza
     # caminando. Así se atiende primero a los que están al frente o a la vuelta, aunque en carro haya que
     # dar la vuelta a la manzana por el sentido de las calles.
@@ -752,6 +783,11 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
             and abs(costo(order[::-1]) - costo(order)) < 1:
         order.reverse()
 
+    k_acc = min(range(len(ACC)), key=lambda k: acc_t[(order[-1], k)][0])
+    acceso = dict(ACC[k_acc], min_sin_trafico=round(acc_t[(order[-1], k_acc)][0] / 60, 1),
+                  tiempos=acc_t[(order[-1], k_acc)][1])
+    pts[E] = (acceso["lat"], acceso["lng"])
+
     # línea de tiempo: cada tramo con el tráfico de la hora y el sentido en que se maneja
     cfg = cargar_trafico()
     reloj = salida or hora_lima()
@@ -793,8 +829,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         prev_i, prev_num = idx, num
     num_de = {idx: n0 + k for k, idx in enumerate(order, 1)}
     grupos = sorted([sorted(num_de[i] for i in grp) for grp in G if len(grp) > 1])
-    nav_retorno = (f"{NAV}&destination={PADOMI[0]:.6f},{PADOMI[1]:.6f}&destination_place_id={PADOMI_PID}"
-                   f"&waypoints={ARENALES[0]:.6f},{ARENALES[1]:.6f}")
+    nav_retorno = nav_a(acceso["lat"], acceso["lng"], acceso.get("place_id"))
 
     n_par = len(paradas)
     # la 1ª parada ya va con el 🧭 del PRIMER MENSAJE: el 🗺️ del tramo 1 arranca en la siguiente
@@ -830,7 +865,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         "fec": fec, "inicio": inicio, "visitadas": B["visitadas"], "paradas": paradas,
         "penultima_parada": paradas[-2]["n"] if len(paradas) >= 2 else None,
         "km_linea_recta_total": round(sum(D[a][b] for a, b in zip(seq_nodes, seq_nodes[1:])), 1),
-        "nav_retorno": nav_retorno, "tiempos": tiempos, "grupos": grupos, "primera": primera, "tramos": tramos,
+        "nav_retorno": nav_retorno, "acceso": acceso, "tiempos": tiempos, "grupos": grupos, "primera": primera, "tramos": tramos,
         "total_min": sum(r5(t["manejo_min"]) + t["atencion_min"] for t in tramos)
                      + (r5(primera["manejo_min"]) + primera["atencion_min"] if primera else 0),
         "paradas_ajustadas_a_direccion": [{"n": p["n"], "direccion": p["destino"]["direccion"],
@@ -913,7 +948,9 @@ def lista_md(ruta, ahora):
     if partes:
         L.append("🚦 " + " · ".join(partes))
     rg = ruta.get("retorno_grifo")
-    L.append(rg["texto"] if rg else f"Regreso a PADOMI por Arenales: [🧭 Ir]({ruta['nav_retorno']})")
+    acc = ruta.get("acceso")
+    reg = f"Regreso a {nombre_acceso(acc)}" if acc else "Regreso a PADOMI"
+    L.append(rg["texto"] if rg else f"{reg}: [🧭 Ir]({ruta['nav_retorno']})")
     L.append("")
     # notas de acceso
     N = []
@@ -960,8 +997,13 @@ def mapa_json(ruta):
             loc["notes"] += f" · a pie desde la {p['a_pie_desde']}" if p["a_pie_desde"] else " · a pie desde donde estás"
         locs.append(loc)
     rg = ruta.get("retorno_grifo")
-    padomi_fin = {"name": "PADOMI (llegada)", "latitude": PADOMI[0], "longitude": PADOMI[1],
-                  "place_id": PADOMI_PID, "notes": "Av. Arenales cdra 13"}
+    acc = ruta.get("acceso") or {"n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1], "place_id": PADOMI_PID}
+    def llegada(x, nota):
+        d = {"name": f"EsSalud · acceso {x['n']} ({nota})" if x.get("n") else f"PADOMI ({nota})",
+             "latitude": x["lat"], "longitude": x["lng"], "notes": x["nombre"]}
+        if str(x.get("place_id") or "").startswith("ChIJ"):
+            d["place_id"] = x["place_id"]
+        return d
     if rg:
         g = rg["grifo"]
         grifo = {"name": f"⛽ Grifo {g.get('nombre') or ''}".strip(), "latitude": g["lat"], "longitude": g["lng"],
@@ -969,15 +1011,11 @@ def mapa_json(ruta):
         if g.get("place_id"):
             grifo["place_id"] = g["place_id"]
         if rg["orden"] == "grifo_primero":
-            locs += [grifo, padomi_fin]
-        else:                                          # PADOMI más cerca: dejar al especialista, luego el grifo
-            locs += [{"name": "Retorno por Av. Arenales", "latitude": ARENALES[0], "longitude": ARENALES[1],
-                      "notes": "Punto de paso, cdra 5"},
-                     dict(padomi_fin, name="PADOMI (deja al especialista)"), grifo, padomi_fin]
+            locs += [grifo, llegada(rg["acceso_final"], "llegada")]
+        else:                                          # EsSalud más cerca: dejar al especialista, luego el grifo
+            locs += [llegada(acc, "deja al especialista"), grifo, llegada(rg["acceso_final"], "llegada")]
     else:
-        locs.append({"name": "Retorno por Av. Arenales", "latitude": ARENALES[0], "longitude": ARENALES[1],
-                     "notes": "Punto de paso, cdra 5"})
-        locs.append(padomi_fin)
+        locs.append(llegada(acc, "llegada"))
     dias = [{"day_number": 1, "title": " → ".join(distritos_ruta(ruta, 4)), "locations": locs}]
     V = ruta.get("visitadas", [])
     if V:   # en plena ruta: día 1 = ya atendidos (tachados), día 2 = lo que falta
@@ -1109,27 +1147,30 @@ def cmd_plan(a):
 
 def plan_retorno(ruta, g):
     """Regreso con recarga (pedido del usuario, 08/10/2026). Desde la última parada: si el grifo queda más
-    cerca que PADOMI, se pasa primero por el grifo; si PADOMI queda más cerca, primero se deja al
-    especialista en PADOMI y luego se va al grifo. Si están casi igual de cerca (MARGEN_GRIFO_KM), va el
-    grifo primero: así no hay que salir de PADOMI y volver."""
+    cerca que EsSalud, se pasa primero por el grifo; si EsSalud queda más cerca, primero se deja al
+    especialista (en el acceso más rápido) y luego se va al grifo. Si están casi igual de cerca
+    (MARGEN_GRIFO_KM), va el grifo primero: así no hay que salir de EsSalud y volver. Del grifo se vuelve al
+    acceso más cercano a él."""
     ult = ruta["paradas"][-1]
     u = (ult["lat"], ult["lng"])
-    km_g, km_p = hav(u, (g["lat"], g["lng"])), hav(u, PADOMI)
-    nav_g = f"{NAV}&destination={g['lat']:.6f},{g['lng']:.6f}" + \
-            (f"&destination_place_id={g['place_id']}" if g.get("place_id") else "")
-    nav_p = f"{NAV}&destination={PADOMI[0]:.6f},{PADOMI[1]:.6f}&destination_place_id={PADOMI_PID}"
+    acc = ruta.get("acceso") or {"n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1], "place_id": PADOMI_PID}
+    pg = (g["lat"], g["lng"])
+    acc_g = min(cargar_accesos(), key=lambda a: hav(pg, (a["lat"], a["lng"])))
+    km_g, km_p = hav(u, pg), hav(u, (acc["lat"], acc["lng"]))
+    nav_g = nav_a(g["lat"], g["lng"], g.get("place_id"))
+    nav_f = nav_a(acc_g["lat"], acc_g["lng"], acc_g.get("place_id"))
     nom = f"Grifo {g['nombre']}" if g.get("nombre") else "Grifo"
-    if km_p + MARGEN_GRIFO_KM >= km_g:                  # casi igual de cerca: el grifo primero ahorra la vuelta
+    if km_p + MARGEN_GRIFO_KM >= km_g:
         orden = "grifo_primero"
-        texto = (f"Regreso con recarga (desde la {ult['n']} el grifo queda antes que PADOMI): "
-                 f"[⛽ 1. {nom}]({nav_g}) → [🧭 2. PADOMI]({nav_p})")
+        texto = (f"Regreso con recarga (desde la {ult['n']} el grifo queda antes que EsSalud): "
+                 f"[⛽ 1. {nom}]({nav_g}) → [🧭 2. {nombre_acceso(acc_g)}]({nav_f})")
     else:
         orden = "padomi_primero"
-        texto = (f"Regreso con recarga (desde la {ult['n']} PADOMI queda más cerca que el grifo): "
-                 f"[🧭 1. PADOMI por Arenales]({ruta['nav_retorno']}), deja al especialista → "
-                 f"[⛽ 2. {nom}]({nav_g}) → [🧭 3. PADOMI]({nav_p})")
-    return {"grifo": g, "orden": orden, "km_linea_recta_grifo": round(km_g, 2),
-            "km_linea_recta_padomi": round(km_p, 2), "texto": texto}
+        texto = (f"Regreso con recarga (desde la {ult['n']} EsSalud queda más cerca que el grifo): "
+                 f"[🧭 1. {nombre_acceso(acc)}]({ruta['nav_retorno']}), deja al especialista → "
+                 f"[⛽ 2. {nom}]({nav_g}) → [🧭 3. {nombre_acceso(acc_g)}]({nav_f})")
+    return {"grifo": g, "orden": orden, "acceso_final": acc_g, "km_linea_recta_grifo": round(km_g, 2),
+            "km_linea_recta_essalud": round(km_p, 2), "texto": texto}
 
 def leer_grifo(fec):
     try:
@@ -1140,6 +1181,23 @@ def leer_grifo(fec):
 def cmd_grifo(a):
     """Guarda el grifo de la unidad del día y arma el regreso con recarga sobre la ruta ya calculada."""
     fec = a.fec
+    if a.ninguno or not a.en:                             # no va a recargar: regreso directo a EsSalud
+        if os.path.exists(f"grifo_{fec}.json"):
+            os.remove(f"grifo_{fec}.json")
+        try:
+            ruta = leer(f"ruta_{fec}.json")
+        except OSError:
+            print(json.dumps({"nota": "Sin recarga; aún no hay ruta de ese día."}, ensure_ascii=False))
+            return
+        ruta.pop("retorno_grifo", None)
+        guardar(f"ruta_{fec}.json", ruta)
+        with open(f"lista_{fec}.md", "w", encoding="utf-8") as f:
+            f.write(lista_md(ruta, hora_lima()))
+        guardar(f"mapa_{fec}.json", mapa_json(ruta))
+        acc = ruta.get("acceso")
+        print("\n===== REGRESO SIN RECARGA (mándalo) =====")
+        print(f"Regreso a {nombre_acceso(acc) if acc else 'PADOMI'}: [🧭 Ir]({ruta['nav_retorno']})")
+        return
     v = [x.strip() for x in a.en.split(",")]
     g = {"lat": float(v[0]), "lng": float(v[1]), "nombre": a.nombre or ""}
     if len(v) > 2 and v[2].startswith("ChIJ"):
@@ -1157,7 +1215,7 @@ def cmd_grifo(a):
         f.write(lista_md(ruta, hora_lima()))
     guardar(f"mapa_{fec}.json", mapa_json(ruta))
     rg = ruta["retorno_grifo"]
-    print(json.dumps({k: rg[k] for k in ("orden", "km_linea_recta_grifo", "km_linea_recta_padomi")},
+    print(json.dumps({k: rg[k] for k in ("orden", "km_linea_recta_grifo", "km_linea_recta_essalud")},
                      ensure_ascii=False))
     print("\n===== REGRESO CON RECARGA (mándalo) =====")
     print(rg["texto"])
@@ -1226,7 +1284,8 @@ p3.add_argument("--especialista"); p3.add_argument("--sin-grafico", action="stor
 p3.add_argument("--salida", help="HH:MM de salida para planear o ensayar (por defecto, ahora)")
 p3.add_argument("--ancha", help="calles que el usuario dice que son anchas o peligrosas de cruzar a pie, separadas por comas")
 p4 = sub.add_parser("grifo"); p4.add_argument("fec")
-p4.add_argument("--en", required=True, help="--en=LAT,LNG[,PLACE_ID] (con =, porque empieza con signo menos)")
+p4.add_argument("--en", help="--en=LAT,LNG[,PLACE_ID] (con =, porque empieza con signo menos)")
+p4.add_argument("--ninguno", action="store_true", help="hoy no recarga: regreso directo a EsSalud")
 p4.add_argument("--nombre", help="nombre corto del grifo, p. ej. Repsol")
 A = ap.parse_args()
 {"preparar": cmd_preparar, "plan": cmd_plan, "ruta": cmd_ruta, "grifo": cmd_grifo}[A.cmd](A)
