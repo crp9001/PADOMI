@@ -20,3 +20,10 @@
   6 km, en 8 direcciones) con los segundos por calle hasta cada acceso (OSRM, respeta el sentido de las
   calles). El script elige el acceso desde el punto de la tabla más cercano a la última parada, sin
   consultas extra. Si cambian los accesos, hay que volver a medir la tabla.
+
+# Firma
+
+- `firma.png`: firma "by CRISTHIAN RAMIREZ" (letra Orbitron, gris claro sólido, íconos de ruta y trayecto).
+  `grafico_ruta.py` la pone al final de la lista de pacientes, alineada a la derecha. Si falta, el gráfico
+  sale sin firma. Se regenera con `scripts/logo_firma.py firma.png ruta+trayecto solido Orbitron-700.ttf
+  Orbitron-700.ttf` (fuente libre OFL, de github.com/google/fonts, carpeta `ofl/orbitron`).

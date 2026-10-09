@@ -137,6 +137,18 @@ for p, d in zip(P, dirs):
     lines = textwrap.wrap(txt, 64, subsequent_indent="   ")
     bold = k > 1 or any(x.get("nuevo") for x in p["pacientes"])
     rows.append(("parada", (p["n"], "\n".join(lines), bold), max(1, len(lines) * 0.85)))
+# firma "by CRISTHIAN RAMIREZ": al final de la lista de pacientes, alineada a la derecha
+import os
+FIRMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "firma.png")
+FIRMA_ANCHO = 1.7                                         # pulgadas
+firma_img = None
+try:
+    from PIL import Image as _Img
+    firma_img = _Img.open(FIRMA).convert("RGBA")
+    FIRMA_ALTO = FIRMA_ANCHO * firma_img.height / firma_img.width
+    rows.append(("firma", None, (FIRMA_ALTO + 0.30) / 0.30))   # alto de la firma + aire, en filas de 0.30"
+except Exception:
+    firma_img = None
 nota_manejo = ("Manejo: tiempos por calle (OpenStreetMap) con tráfico según la hora y el sentido (data/trafico.json)."
                if ruta.get("tiempos") == "calles" else
                "Manejo estimado: distancia en línea recta × 1.35 a 20 km/h promedio.")
@@ -399,6 +411,8 @@ for kind, dat, h in rows:
         multi = "\n" in txt
         lg.text(0.06, top_line + 0.32 if multi else top_line, txt, fontsize=9.6, color=INK,
                 va="top" if multi else "center", fontweight="bold" if bold else "normal", linespacing=1.25)
+    elif kind == "firma":
+        firma_fila = (y - h, y)                   # (abajo, arriba) en filas
     elif kind == "nota":
         lg.text(0.0, yc, dat, fontsize=7.4, color=MUTED, va="center", linespacing=1.4)
     y -= h
@@ -411,6 +425,13 @@ if tachar:                                   # línea por el medio del texto de 
         (ax0, ay0), (ax1, ay1) = inv.transform((bb.x0, bb.y0)), inv.transform((bb.x1, bb.y1))
         ym = (ay0 + ay1) / 2
         lg.plot([ax0 - 0.004, ax1 + 0.004], [ym, ym], color="#6B7280", lw=1.1, zorder=5, clip_on=False)
+if firma_img is not None:
+    import numpy as _np
+    _abajo = 0.25 + (firma_fila[0] + firma_fila[1]) / 2 * RH - FIRMA_ALTO / 2      # centrada en su fila (pulgadas)
+    _izq = 0.95 * FW - FIRMA_ANCHO
+    _fa = fig.add_axes([_izq / FW, _abajo / H, FIRMA_ANCHO / FW, FIRMA_ALTO / H])
+    _f = firma_img.resize((int(FIRMA_ANCHO * 300), int(FIRMA_ALTO * 300)), _Img.LANCZOS)
+    _fa.imshow(_np.asarray(_f), interpolation="antialiased"); _fa.axis("off")
 fig.savefig(OUT, dpi=150, facecolor=BG)
 # aviso para revisar el PNG solo si hace falta: dirección cortada o números encimados
 nums = [st["n"] for st in V + P]
