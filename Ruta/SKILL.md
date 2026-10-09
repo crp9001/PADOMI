@@ -3,7 +3,7 @@ name: ruta-padomi
 description: "Arma la ruta diaria de visitas PADOMI (EsSalud) desde Geoprog: un solo circuito desde PADOMI (Av. Arenales) y de vuelta a EsSalud. Úsala cuando el usuario pida su ruta PADOMI, Geoprog o la ruta del día, o pegue un texto que empieza con RUTA PADOMI."
 ---
 
-# Ruta PADOMI (v4)
+# Ruta PADOMI (v5)
 
 El skill instalado (cargador) ya actualizó el repositorio público `crp9001/PADOMI` en `padomi/`, mostró este archivo y `references/obras.md`, y corrió `preparar`. `$S` = `padomi/Ruta/scripts`. Los archivos del día van en la carpeta de trabajo, nunca en el repositorio. **Al repositorio no van pacientes, personal, placas, grifos ni claves: es público.**
 
@@ -18,8 +18,9 @@ El skill instalado (cargador) ya actualizó el repositorio público `crp9001/PAD
 
 ## Ruta nueva
 Si `igual_a_la_anterior` y ya hay ruta, dilo en media línea y no recalcules. Si hay `cambios` y `ya_hay_ruta_de_ese_dia`, ve a **En plena ruta**.
+**Dos momentos:** primero solo el 1er paciente; la lista, los tiempos, el gráfico y el mapa salen **una sola vez**, cuando ya están la placa, el combustible y si recarga. Nada de entregas parciales ni de "tiempos actualizados" después.
 1. **En un mensaje:** `places_search` de cada dirección de `places_search` (`max_results: 1`, hasta 10 por llamada); `WebFetch` de cada `webfetch.consultas[].url` con `webfetch.prompt` tal cual; y, si es la primera ruta del día, 1 búsqueda web de obras en las avenidas de la zona (según `obras.md`).
-2. **Un solo Bash**, sin pensar el orden:
+2. **Un solo Bash**, sin pensar el orden y **sin gráfico** (solo hace falta el 1er paciente):
    ```
    cat > lugares_<fec>.txt <<'EOF'
    <lat> <lng> <place_id o -> <d|o> <dirección>
@@ -27,30 +28,32 @@ Si `igual_a_la_anterior` y ya hay ruta, dilo en media línea y no recalcules. Si
    cat > <guardar_en> <<'EOF'
    {"code":"Ok","durations":[...]}
    EOF
-   python3 $S/ruta_padomi.py ruta <fec> --especialista "Nombre Apellido" --ancha "..."
+   python3 $S/ruta_padomi.py ruta <fec> --especialista "Nombre Apellido" --ancha "..." --sin-grafico
    ```
-   Una línea por lugar: `d` si `types` trae `street_address`, `premise` o `subpremise`; si no, `o`. `place_id` solo si empieza con `ChIJ`. La dirección tal cual (sin ", Peru"). Una respuesta de WebFetch que falló se omite: el script avisa y usa línea recta. `--salida HH:MM` solo para planear a otra hora.
-3. Solo si `revisar_grafico` no es `false`: mira el PNG con Read, corrige `etiquetas_<fec>.json` y corre `python3 $S/grafico_ruta.py ruta_<fec>.json etiquetas_<fec>.json <png>`.
-4. **Entrega.**
+   Una línea por lugar: `d` si `types` trae `street_address`, `premise` o `subpremise`; si no, `o`. `place_id` solo si empieza con `ChIJ`. La dirección tal cual (sin ", Peru"). Un resultado de `places_search` que cae en otra calle u otro distrito va con las coordenadas de Geoprog, `-` y `o`. Una respuesta de WebFetch que falló se omite: el script avisa y usa línea recta. Anota la `salida` que muestra el JSON: el análisis final la reutiliza.
+3. **Primer mensaje** (`SendUserMessage`) y **termina el turno**: "Hoy vas con <Nombre> (código <C. MAPA>)." + una línea de **ida** (evitando obras) + el **PRIMER MENSAJE** tal cual + "🚐 ¿Qué placa tiene hoy la unidad?". No mandes lista, gráfico ni mapa, ni sigas analizando. Si hoy ya dio la placa y si recarga (otra lista del mismo día), no preguntes: haz el análisis final en este mismo turno.
+4. **Placa y combustible** (abajo) hasta saber si recarga.
+5. **Análisis final, uno solo.** Un Bash: `grifo` (o `grifo <fec> --ninguno`) y luego `python3 $S/ruta_padomi.py ruta <fec> --especialista "..." --ancha "..." --salida <salida del paso 2>` (misma salida = mismo orden y mismo 1er paciente). Solo si `revisar_grafico` no es `false`: mira el PNG con Read, corrige `etiquetas_<fec>.json` y corre `python3 $S/grafico_ruta.py ruta_<fec>.json etiquetas_<fec>.json <png>`. Luego **Entrega final**.
+   - Si pide la lista antes de terminar con la placa o el combustible, haz el análisis final sin recarga y pregunta lo que falte al final de esa entrega; cuando responda, manda solo la línea de regreso y el total nuevo.
 
 ## Especialista
-`tecnico_apoyo` "NN" → línea `Tec. Apoyo NN` de la memoria; si `prof` es un nombre, búscalo por nombre (`¥` = `Ñ`). Sin nombre registrado: sigue y al final pregunta "¿Cómo se llama la persona del código <código>?" (nunca la clave); guarda solo nombre y 1er apellido (`- [stated] <código> — <Nombre Apellido> · Tec. Apoyo NN`).
+`tecnico_apoyo` "NN" → línea `Tec. Apoyo NN` de la memoria; si `prof` es un nombre, búscalo por nombre (`¥` = `Ñ`). Sin nombre registrado: sigue y al final pregunta "¿Cómo se llama la persona del código <código>?" (nunca la clave); guarda solo nombre y 1er apellido (`- [stated] <código> — <Nombre Apellido> · Tec. Apoyo NN`). Si `prof` es un nombre que no está en la memoria, pregunta al final su código C. MAPA y guárdalo igual.
 
-## Entrega (en este orden, sin pasos en medio)
-1. `SendUserMessage`: "Hoy vas con <Nombre> (código <C. MAPA>)." + una línea de **ida** (evitando obras) + el **PRIMER MENSAJE** tal cual + "🚐 ¿Qué placa tiene hoy la unidad?" (si no la dio hoy).
-2. `SendUserMessage`: la **lista** tal cual (puedes corregir una dirección rara, sin tocar enlaces ni números). La 1ª parada va sola con su 🧭 y el **🗺️ Tramo 1 arranca en la 2**.
-3. `SendUserFile` con el PNG (`display: render`). Nunca como artifact.
-4. `places_map_display_v0` con el JSON de MAPA tal cual.
-5. Final corto: obras en el recorrido con su fuente (si hay) y el cierre: "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
+## Entrega final (en este orden, sin pasos en medio)
+1. `SendUserMessage`: la **lista** tal cual: ya trae los tiempos con la recarga y el regreso (puedes corregir una dirección rara, sin tocar enlaces ni números). La 1ª parada va sola con su 🧭 y el **🗺️ Tramo 1 arranca en la 2**.
+2. `SendUserFile` con el PNG (`display: render`). Nunca como artifact.
+3. `places_map_display_v0` con el JSON de MAPA tal cual.
+4. Final corto: obras en el recorrido con su fuente (si hay) y el cierre: "🗺️ = tramo de hasta 5 paradas; 🧭 = un solo paciente. Si Google Maps se cierra a mitad de tramo, usa el 🧭 del siguiente; si el 🗺️ abre en el navegador, usa los 🧭. Si agregan pacientes, pégame la lista nueva y dime en qué número vas."
 
-## Placa y combustible (después del 1er paciente; nunca en el penúltimo)
+## Placa y combustible (después del 1er paciente, antes del análisis final)
 Dos grifos fijos y unidades que cambian; todo está en la memoria ("Grifos" y "Unidades").
 1. **Placa** en mayúsculas, sin espacios ni guion; búscala en "Unidades". En un solo mensaje:
    - Registrada: "Esta unidad carga <combustible> en el grifo <nombre>. **¿Vas a recargar hoy?**"
    - Nueva: "**¿Qué combustible usa?** (<grifo 1>: <combustibles> · <grifo 2>: <combustibles>) **¿Vas a recargar hoy?**" Con la respuesta, agrega `- [stated] <PLACA> — <Grifo> (<combustible>)` en "Unidades" (el grifo sale del combustible).
-2. **Sí recarga:** `python3 $S/ruta_padomi.py grifo <fec> --en=LAT,LNG,PLACE_ID --nombre "<Grifo>"` y manda la línea REGRESO CON RECARGA tal cual. El script decide: grifo primero si queda antes que EsSalud (o casi igual, 300 m); si EsSalud queda más cerca, primero se deja al especialista y luego el grifo. Queda guardado para los recálculos. La lista suma la recarga al tiempo total (tramos al grifo y de vuelta con el tráfico de la hora + `MIN_RECARGA` en el grifo); con `ruta <fec>` se recalculan los tiempos desde ahora.
-3. **No recarga** (tanque lleno): la lista ya trae el regreso directo. Si antes dijo que sí: `grifo <fec> --ninguno` y manda REGRESO SIN RECARGA.
-4. Sin respuesta: regreso sin recarga; pregunta de nuevo una vez en la siguiente entrega. Si un grifo no tiene coordenadas en la memoria, sácalas de su enlace (WebFetch: la redirección trae `/place/<lat>,<lng>` o el nombre; luego `places_search`) y guárdalas.
+   - Si en un mensaje ya dio placa, combustible y si recarga, no preguntes más: análisis final.
+2. **Sí recarga:** en el análisis final, `python3 $S/ruta_padomi.py grifo <fec> --en=LAT,LNG,PLACE_ID --nombre "<Repsol|Primax>"` (nombre corto). El script decide: grifo primero si queda antes que EsSalud (o casi igual, 300 m); si EsSalud queda más cerca, primero se deja al especialista y luego el grifo. Queda guardado para los recálculos, y la lista suma la recarga al total (tramos al grifo y de vuelta con el tráfico de la hora + `MIN_RECARGA` en el grifo).
+3. **No recarga** (tanque lleno): en el análisis final, `grifo <fec> --ninguno`; la lista trae el regreso directo.
+4. Si un grifo no tiene coordenadas en la memoria, sácalas de su enlace (WebFetch: la redirección trae `/place/<lat>,<lng>` o el nombre; luego `places_search`) y guárdalas.
 
 ## En plena ruta
 1. Con `cambios`, pregunta "¿En qué número de paciente vas?" (salvo que ya lo dijo).

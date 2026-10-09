@@ -1300,6 +1300,7 @@ def cmd_ruta(a):
 "tiempos": ruta["tiempos"], "grupos": ruta["grupos"],
         "total_min": ruta["total_min"], "nuevos": ruta["nuevos"], "avisos": ruta["avisos"],
         "grafico": g, "revisar_grafico": revisar, "etiquetas": f"etiquetas_{fec}.json",
+        "salida": ruta["trafico"]["salida"],              # el análisis final la reutiliza: mismo orden
     }, ensure_ascii=False))
     # primero lo urgente: a dónde ir ahora (se manda apenas sale, antes de la lista, el mapa y el gráfico)
     p = P[0]
