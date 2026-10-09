@@ -24,6 +24,6 @@
 # Firma
 
 - `firma.png`: firma "by CRISTHIAN RAMIREZ" (letra Orbitron, gris claro sólido, íconos de ruta y trayecto).
-  `grafico_ruta.py` la pone al final de la lista de pacientes, alineada a la derecha. Si falta, el gráfico
+  `grafico_ruta.py` la pone al final del gráfico, después de toda la información, a la derecha. Si falta, el gráfico
   sale sin firma. Se regenera con `scripts/logo_firma.py firma.png ruta+trayecto solido Orbitron-700.ttf
   Orbitron-700.ttf` (fuente libre OFL, de github.com/google/fonts, carpeta `ofl/orbitron`).

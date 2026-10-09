@@ -137,18 +137,6 @@ for p, d in zip(P, dirs):
     lines = textwrap.wrap(txt, 64, subsequent_indent="   ")
     bold = k > 1 or any(x.get("nuevo") for x in p["pacientes"])
     rows.append(("parada", (p["n"], "\n".join(lines), bold), max(1, len(lines) * 0.85)))
-# firma "by CRISTHIAN RAMIREZ": al final de la lista de pacientes, alineada a la derecha
-import os
-FIRMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "firma.png")
-FIRMA_ANCHO = 1.7                                         # pulgadas
-firma_img = None
-try:
-    from PIL import Image as _Img
-    firma_img = _Img.open(FIRMA).convert("RGBA")
-    FIRMA_ALTO = FIRMA_ANCHO * firma_img.height / firma_img.width
-    rows.append(("firma", None, (FIRMA_ALTO + 0.30) / 0.30))   # alto de la firma + aire, en filas de 0.30"
-except Exception:
-    firma_img = None
 nota_manejo = ("Manejo: tiempos por calle (OpenStreetMap) con tráfico según la hora y el sentido (data/trafico.json)."
                if ruta.get("tiempos") == "calles" else
                "Manejo estimado: distancia en línea recta × 1.35 a 20 km/h promedio.")
@@ -157,6 +145,18 @@ rows.append(("nota", nota_manejo + " Atención: 6 min por paciente.\n"
                      "Línea de puntos = a pie, sin mover la unidad. Gris y tachado = ya atendido.\n"
                      "Mapa base: vías principales © colaboradores de OpenStreetMap; distritos: IGN.", 2.4))
 RH = 0.30
+# firma "by CRISTHIAN RAMIREZ": lo último del gráfico, después de toda la información, alineada a la derecha
+import os
+FIRMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "firma.png")
+FIRMA_ANCHO = 1.7                                         # pulgadas
+firma_img = None
+try:
+    from PIL import Image as _Img
+    firma_img = _Img.open(FIRMA).convert("RGBA")
+    FIRMA_ALTO = FIRMA_ANCHO * firma_img.height / firma_img.width
+    rows.append(("firma", None, (FIRMA_ALTO + 0.30) / RH))    # alto de la firma + aire, en filas
+except Exception:
+    firma_img = None
 leg_h = sum(r[2] for r in rows) * RH
 H = 0.95 + mh + 0.35 + leg_h + 0.25
 
