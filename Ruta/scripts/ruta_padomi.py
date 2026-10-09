@@ -31,6 +31,7 @@ PADOMI_PID = "ChIJxaPv7bbJBZERIZPpt74sv7E"
 MIN_POR_PACIENTE = 6                   # atención aproximada por paciente
 FACTOR_CALLES = 1.35                   # línea recta -> recorrido por calles
 VEL_LIBRE_KMH = 30                     # sin tiempos por calle: línea recta x1.35 a 30 km/h sin tráfico
+MIN_RECARGA = 10                       # minutos en el grifo (cola, carga y pago)
 MARGEN_GRIFO_KM = 0.3                  # PADOMI primero solo si queda más cerca que el grifo por más de esto
 FACTOR_TRAFICO = 1.5                   # los tiempos por calle son sin tráfico; en Lima x1.5 (= 20 km/h promedio)
 GRUPO_SEG = 150                        # pequeño grupo: paradas a 2.5 min o menos entre sí por calle (sin tráfico)
@@ -937,15 +938,18 @@ def lista_md(ruta, ahora):
         man = r5(t["manejo_min"])
         L.append(f"[🗺️ Tramo {t['tramo']}: {rango}]({t['enlace']}) · manejo ~{fmt(man)} + atención "
                  f"{fmt(t['atencion_min'])} ({t['pacientes']} pac.) = {fmt(man + t['atencion_min'])}")
-    total = ruta["total_min"]
+    rg = ruta.get("retorno_grifo")
+    rec = (rg or {}).get("recarga")
+    total = ruta["total_min"] + (r5(rec["extra_min"]) if rec else 0)
     llegada = (ahora + datetime.timedelta(minutes=total)).strftime("%H:%M")
+    con = " con recarga" if rec else ""
     tr = ruta.get("trafico") or {}
     if ruta["inicio"]["tipo"] != "padomi":
-        L.append(f"**Tiempo restante: {fmt(total)}** · llegada a PADOMI hacia las {llegada}")
+        L.append(f"**Tiempo restante{con}: {fmt(total)}** · llegada a EsSalud hacia las {llegada}")
     else:
         cuando = (f"saliendo a las {ahora.strftime('%H:%M')}" if tr.get("salida_fijada")
                   else f"si sales ahora ({ahora.strftime('%H:%M')})")
-        L.append(f"**Tiempo total estimado: {fmt(total)}** · {cuando}, llegas a PADOMI hacia las {llegada}")
+        L.append(f"**Tiempo total estimado{con}: {fmt(total)}** · {cuando}, llegas a EsSalud hacia las {llegada}")
     def _tr(x, nombre):
         if not x:
             return None
@@ -955,7 +959,12 @@ def lista_md(ruta, ahora):
                           _tr(tr.get("regreso"), "regreso")) if p]
     if partes:
         L.append("🚦 " + " · ".join(partes))
-    rg = ruta.get("retorno_grifo")
+    if rec:
+        t = {x["a"]: x for x in rec["tramos"]}
+        g, e = t["grifo"], t["essalud"]
+        desde = "EsSalud" if "essalud_deja" in t else "la última parada"
+        L.append(f"⛽ recarga {g['hora']} ({g['franja']}): {desde} → grifo ~{max(1, round(g['min']))} min + carga "
+                 f"~{rec['min_recarga']} min + grifo → EsSalud ~{max(1, round(e['min']))} min · suma ~{fmt(r5(rec['extra_min']))} al regreso")
     acc = ruta.get("acceso")
     reg = f"Regreso a {nombre_acceso(acc)}" if acc else "Regreso a PADOMI"
     L.append(rg["texto"] if rg else f"{reg}: [🧭 Ir]({ruta['nav_retorno']})")
@@ -1175,7 +1184,36 @@ def plan_retorno(ruta, g):
                  f"[🧭 1. {nombre_acceso(acc)}]({ruta['nav_retorno']}), deja al especialista → "
                  f"[⛽ 2. {nom}]({nav_g}) → [🧭 3. {nombre_acceso(acc_g)}]({nav_f})")
     return {"grifo": g, "orden": orden, "acceso_final": acc_g, "km_linea_recta_grifo": round(km_g, 2),
-            "km_linea_recta_essalud": round(km_p, 2), "texto": texto}
+            "km_linea_recta_essalud": round(km_p, 2), "texto": texto,
+            "recarga": tiempos_recarga(ruta, orden, u, (acc["lat"], acc["lng"]), pg, (acc_g["lat"], acc_g["lng"]))}
+
+def tiempos_recarga(ruta, orden, u, pa, pg, pf):
+    """Minutos que la recarga suma al regreso, con el tráfico de la hora y el sentido de cada tramo (pedido del
+    usuario, 09/10/2026). Los tramos al grifo y de vuelta van por línea recta x FACTOR_CALLES a VEL_LIBRE_KMH;
+    el tramo última parada -> EsSalud conserva su tiempo por calle."""
+    tr = (ruta.get("trafico") or {}).get("regreso") or {}
+    cfg = cargar_trafico()
+    fec = ruta.get("fec") or hora_lima().strftime("%Y%m%d")
+    h, m = (int(x) for x in (tr.get("hora") or hora_lima().strftime("%H:%M")).split(":"))
+    reloj = hora_lima().replace(year=int(fec[:4]), month=int(fec[4:6]), day=int(fec[6:8]),
+                                hour=h, minute=m, second=0, microsecond=0)
+    base = float(tr.get("min") or 0)
+    legs = []
+    if orden == "grifo_primero":                          # la recarga reemplaza el tramo directo a EsSalud
+        tramos = [("grifo", u, pg), ("essalud", pg, pf)]
+    else:                                                 # primero se deja al especialista
+        legs.append({"a": "essalud_deja", "hora": reloj.strftime("%H:%M"), "min": round(base, 1)})
+        reloj += datetime.timedelta(minutes=base)
+        tramos = [("grifo", pa, pg), ("essalud", pg, pf)]
+    for destino, a, b in tramos:
+        f, et, sen, flu = factor_trafico(cfg, a, b, reloj)
+        mins = hav(a, b) * FACTOR_CALLES / VEL_LIBRE_KMH * 60 * f
+        legs.append({"a": destino, "hora": reloj.strftime("%H:%M"), "min": round(mins, 1), "franja": et,
+                     "factor": round(f, 2)})
+        reloj += datetime.timedelta(minutes=mins + (MIN_RECARGA if destino == "grifo" else 0))
+    regreso = sum(x["min"] for x in legs) + MIN_RECARGA
+    return {"tramos": legs, "min_recarga": MIN_RECARGA, "regreso_min": round(regreso),
+            "extra_min": max(0, int(round(regreso - base))), "llegada": reloj.strftime("%H:%M")}
 
 def leer_grifo(fec):
     try:
