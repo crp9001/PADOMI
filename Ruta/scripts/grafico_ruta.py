@@ -24,7 +24,6 @@ P = ruta["paradas"]
 T = ruta["tramos"]
 dirs = et["direcciones"]
 assert len(dirs) == len(P), f"{len(dirs)} direcciones para {len(P)} paradas"
-pen = None   # ya no se marca el penúltimo por combustible: el grifo se sabe desde la placa del día
 INI = ruta.get("inicio", {"tipo": "padomi"})
 N0 = INI["n"] if INI.get("tipo") == "parada" else 0     # en plena ruta la numeración sigue desde N0+1
 V = ruta.get("visitadas", [])                            # paradas ya atendidas: van en gris y tachadas
@@ -135,10 +134,8 @@ for p, d in zip(P, dirs):
         txt += " · NUEVO"
     if p.get("a_pie_desde") is not None:
         txt += " · A PIE"
-    if p["n"] == pen:
-        txt += " · COMBUSTIBLE"
     lines = textwrap.wrap(txt, 64, subsequent_indent="   ")
-    bold = k > 1 or p["n"] == pen or any(x.get("nuevo") for x in p["pacientes"])
+    bold = k > 1 or any(x.get("nuevo") for x in p["pacientes"])
     rows.append(("parada", (p["n"], "\n".join(lines), bold), max(1, len(lines) * 0.85)))
 nota_manejo = ("Manejo: tiempos por calle (OpenStreetMap) con tráfico según la hora y el sentido (data/trafico.json)."
                if ruta.get("tiempos") == "calles" else
@@ -357,8 +354,8 @@ for p, l, st in zip(pts, labp, P):
     ax.plot(p[0], p[1], "o", ms=3.2, color=INK, zorder=7)
     if math.hypot(l[0] - p[0], l[1] - p[1]) > R * 0.5:
         ax.plot([p[0], l[0]], [p[1], l[1]], color=INK, lw=0.8, zorder=7)
-    ax.add_patch(Circle(l, R, facecolor=c, edgecolor="#F59E0B" if nn == pen else "white",
-                        lw=2.2 if nn == pen else 1.4, zorder=8))
+    ax.add_patch(Circle(l, R, facecolor=c, edgecolor="white",
+                        lw=1.4, zorder=8))
     ax.text(l[0], l[1], str(nn), color="white", fontsize=9 if nn < 10 else 8.2, fontweight="bold",
             ha="center", va="center", zorder=9)
 
@@ -396,7 +393,7 @@ for kind, dat, h in rows:
         nn, txt, bold = dat
         top_line = y - 0.5
         lg.scatter([0.022], [top_line], s=230, color=col(tramo_de(nn)),
-                   edgecolors="#F59E0B" if nn == pen else "white", linewidths=1.8 if nn == pen else 1,
+                   edgecolors="white", linewidths=1,
                    zorder=3, clip_on=False)
         lg.text(0.022, top_line, str(nn), color="white", fontsize=8, fontweight="bold", ha="center", va="center", zorder=4)
         multi = "\n" in txt

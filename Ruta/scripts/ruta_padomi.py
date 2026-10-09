@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ruta PADOMI v2: orden de visitas según el sentido de las calles, lista para el chat, mapa y gráfico.
+"""Ruta PADOMI v4: orden de visitas según el sentido de las calles, lista para el chat, mapa y gráfico.
 
 Se corre siempre desde la carpeta de trabajo; los archivos del día llevan la fecha (AAAAMMDD).
 
@@ -10,14 +10,17 @@ Se corre siempre desde la carpeta de trabajo; los archivos del día llevan la fe
   2) (solo en plena ruta) python3 ruta_padomi.py plan <fec> --voy N
        Recalcula desde el paciente N: escribe osrm_plan_<fec>.json con las URLs para WebFetch.
   3) python3 ruta_padomi.py ruta <fec> [--voy N] [--especialista "Nombre Apellido"]
-       Usa lugares_<fec>.json (resultados de places_search) y osrm_<fec>_k.json (respuestas de WebFetch).
+       Usa lugares_<fec>.txt (resultados de places_search) y osrm_<fec>_k.json (respuestas de WebFetch).
        Escribe ruta_<fec>.json, lista_<fec>.md (texto para el chat), mapa_<fec>.json (para el mapa)
        y etiquetas_<fec>.json, y genera el gráfico ruta_padomi_<ddmm>.png.
+  4) python3 ruta_padomi.py grifo <fec> --en=LAT,LNG,PLACE_ID --nombre X   (o --ninguno)
+       Regreso con recarga (o sin ella) sobre la ruta ya calculada; queda en grifo_<fec>.json.
 
-lugares_<fec>.json = lista de lugares tal como los da places_search
-  [{"address": .., "latitude": .., "longitude": .., "types": [..], "place_id": ..}, ...]
-  (también sirve {"places": [...]}). No hace falta ordenarlos: cada paciente toma el lugar con su
-  mismo número y calle más cercano a su pin.
+lugares_<fec>.txt = una línea por lugar de places_search, sin ordenar:
+  LAT LNG PLACE_ID|- d|o DIRECCIÓN      (d = street_address/premise/subpremise; o = otro tipo)
+  También sirve lugares_<fec>.json con la lista tal como la da places_search. Cada paciente toma
+  el lugar con su mismo número y calle más cercano a su pin.
+El regreso va al acceso de EsSalud más rápido (data/accesos.json, medido por calle).
 """
 import json, math, sys, html, re, argparse, os, itertools, random, shutil, subprocess, datetime
 from collections import Counter
@@ -25,7 +28,6 @@ from urllib.parse import quote
 
 PADOMI = (-12.0782458, -77.0368112)    # Av. Arenales 1302, Jesús María
 PADOMI_PID = "ChIJxaPv7bbJBZERIZPpt74sv7E"
-ARENALES = (-12.069933, -77.037982)    # Av. Arenales cdra 5 (solo para el gráfico si no hay accesos)
 MIN_POR_PACIENTE = 6                   # atención aproximada por paciente
 FACTOR_CALLES = 1.35                   # línea recta -> recorrido por calles
 VEL_LIBRE_KMH = 30                     # sin tiempos por calle: línea recta x1.35 a 30 km/h sin tráfico
@@ -36,8 +38,9 @@ MAX_GRUPO = 6                          # paradas como máximo por grupo
 PENAL_GRUPO = 240                      # volver a un grupo ya empezado cuesta +4 min en la búsqueda del orden
 OSRM = "https://router.project-osrm.org"   # OpenStreetMap: conoce el sentido de cada vía
 MAX_URL = 230                          # largo máximo de URL que acepta WebFetch (216 funciona, 330 no)
-PROMPT_OSRM = ('Return the "code" field and the "durations" matrix exactly as given (JSON array of arrays, '
-               'every number unchanged, verbatim, all rows). Output only JSON: {"code":..., "durations":[...]}')
+PROMPT_OSRM = ('Return the "code" field and the "durations" matrix (JSON array of arrays, all rows, same order), '
+               'writing every number without its decimal part (612.7 -> 612, 0 -> 0). '
+               'Output only JSON: {"code":..., "durations":[...]}')
 PARADAS_POR_TRAMO = 5                  # tramos de 5 paradas: enlace de tramo, tiempos y colores del gráfico
 MAX_AJUSTE_KM = 0.30                   # cruce pin-dirección: se acepta si están a 300 m o menos
 A_PIE_KM = 0.04                        # a 40 m o menos (cruzar la calle): la unidad no se mueve, el especialista va a pie
@@ -58,14 +61,24 @@ DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
 
 # ---------------------------------------------------------------- utilidades
-def cargar_accesos():
-    """accesos de EsSalud para el regreso (data/accesos.json); sin el archivo, el pin de PADOMI"""
+def _datos_accesos():
     try:
-        acc = json.load(open(os.path.join(AQUI, "..", "data", "accesos.json"), encoding="utf-8"))["accesos"]
-        assert acc
-        return acc
-    except Exception:
-        return [{"id": "PADOMI", "n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1], "place_id": PADOMI_PID}]
+        d = json.load(open(os.path.join(AQUI, "..", "data", "accesos.json"), encoding="utf-8"))
+        assert d["accesos"]
+        return d
+    except Exception:                                   # sin el archivo: el pin de PADOMI
+        return {"accesos": [{"id": "PADOMI", "n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1],
+                             "place_id": PADOMI_PID}], "origenes": []}
+
+def elegir_acceso(p):
+    """acceso de EsSalud más rápido llegando desde p: toma el origen medido más cercano a p (data/accesos.json,
+    tiempos por calle que respetan el sentido de las calles); sin tabla, el acceso más cercano en línea recta"""
+    d = _datos_accesos()
+    A, O = d["accesos"], d.get("origenes") or []
+    if O and all(len(o[2]) == len(A) for o in O):
+        o = min(O, key=lambda o: hav(p, (o[0], o[1])))
+        return dict(A[min(range(len(A)), key=lambda k: o[2][k])])
+    return dict(min(A, key=lambda a: hav(p, (a["lat"], a["lng"]))))
 
 def nav_a(lat, lng, pid=None):
     return f"{NAV}&destination={lat:.6f},{lng:.6f}" + (f"&destination_place_id={pid}" if pid and str(pid).startswith("ChIJ") else "")
@@ -184,13 +197,28 @@ def clave_consulta(q):
     return " ".join(w for w in t if w not in ("CALLE", "AVENIDA", "JIRON", "PASAJE", "PROLONGACION"))
 
 def cargar_lugares(fec):
+    """lugares de places_search: lugares_<fec>.txt (una línea por lugar, lo más corto de escribir:
+    'LAT LNG PLACE_ID|- d|o DIRECCIÓN', d = dirección exacta (street_address/premise/subpremise), o = otro)
+    y/o lugares_<fec>.json (formato de places_search)"""
+    out = []
+    txt = f"lugares_{fec}.txt"
+    if os.path.exists(txt):
+        for ln in open(txt, encoding="utf-8"):
+            t = ln.strip().split(None, 4)
+            if len(t) < 5:
+                continue
+            try:
+                out.append({"lat": float(t[0].rstrip(",")), "lng": float(t[1]), "direccion": t[4],
+                            "place_id": t[2] if t[2].startswith("ChIJ") else None,
+                            "tipos": ["street_address"] if t[3] == "d" else ["otro"]})
+            except ValueError:
+                continue
     path = f"lugares_{fec}.json"
     if not os.path.exists(path):
-        return []
+        return out
     d = leer(path)
     if isinstance(d, dict):
         d = d.get("places", list(d.values()))
-    out = []
     for L in d:
         try:
             out.append({"lat": float(L.get("latitude", L.get("lat"))), "lng": float(L.get("longitude", L.get("lng"))),
@@ -498,8 +526,6 @@ def hacer_plan(fec, voy, gps=None, quitar=None):
     uniq = {}
     for i, pt in zip(ids, [B["start"]] + [(s["lat"], s["lng"]) for s in B["stops"]] + [PADOMI]):
         uniq.setdefault(i, pt)
-    for a in cargar_accesos():                            # regreso: tiempo de cada parada a cada acceso
-        uniq.setdefault(a["id"], (a["lat"], a["lng"]))
     keys, t = list(uniq), cache["t"]
     falta = lambda a, b: a != b and f"{a}|{b}" not in t
     conocidos = {k.split("|")[0] for k in t}
@@ -657,21 +683,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         avisos.append(f"TIEMPOS POR CALLE: {malos} de {N * (N - 1)} tiempos faltaban o no eran creíbles; ahí se usó línea recta")
     tiempos = "calles" if hay else "linea_recta"
 
-    # regreso: desde cada parada, al acceso de EsSalud que tome menos tiempo (los tiempos por calle respetan
-    # el sentido de las calles; sin ellos, línea recta). Así el orden también busca terminar bien ubicado.
-    ACC = cargar_accesos()
-    acc_t = {}
-    for i in range(n + 1):
-        for k, a in enumerate(ACC):
-            pa = (a["lat"], a["lng"])
-            est = hav(pts[i], pa) * FACTOR_CALLES / VEL_LIBRE_KMH * 3600
-            v = tc.get(f"{ids[i]}|{a['id']}")
-            ok = v is not None and hav(pts[i], pa) / 110 * 3600 * 0.9 <= v <= max(900, 6 * est)
-            acc_t[(i, k)] = (v, "calles") if ok else (est, "linea_recta")
-    for i in range(n + 1):
-        T[i][E] = min(acc_t[(i, k)][0] for k in range(len(ACC)))
-
-    # a pie: a 150 m o menos y sin cruzar una avenida ancha, la unidad no se mueve y el especialista cruza
+    # a pie: a 40 m o menos (A_PIE_KM) y sin cruzar una avenida ancha, la unidad no se mueve y el especialista cruza
     # caminando. Así se atiende primero a los que están al frente o a la vuelta, aunque en carro haya que
     # dar la vuelta a la manzana por el sentido de las calles.
     vias = [inicio.get("nom_via")] + [s["pacientes"][0]["nom_via"] for s in S] + [None]
@@ -783,10 +795,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
             and abs(costo(order[::-1]) - costo(order)) < 1:
         order.reverse()
 
-    k_acc = min(range(len(ACC)), key=lambda k: acc_t[(order[-1], k)][0])
-    acceso = dict(ACC[k_acc], min_sin_trafico=round(acc_t[(order[-1], k_acc)][0] / 60, 1),
-                  tiempos=acc_t[(order[-1], k_acc)][1])
-    pts[E] = (acceso["lat"], acceso["lng"])
+    acceso = elegir_acceso(pts[order[-1]])               # regreso: acceso de EsSalud más rápido
 
     # línea de tiempo: cada tramo con el tráfico de la hora y el sentido en que se maneja
     cfg = cargar_trafico()
@@ -863,7 +872,6 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
                        "total_min": int(round(manejo)) + npac * MIN_POR_PACIENTE})
     ruta = {
         "fec": fec, "inicio": inicio, "visitadas": B["visitadas"], "paradas": paradas,
-        "penultima_parada": paradas[-2]["n"] if len(paradas) >= 2 else None,
         "km_linea_recta_total": round(sum(D[a][b] for a, b in zip(seq_nodes, seq_nodes[1:])), 1),
         "nav_retorno": nav_retorno, "acceso": acceso, "tiempos": tiempos, "grupos": grupos, "primera": primera, "tramos": tramos,
         "total_min": sum(r5(t["manejo_min"]) + t["atencion_min"] for t in tramos)
@@ -880,7 +888,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
 
 # ---------------------------------------------------------------- salidas
 def lista_md(ruta, ahora):
-    P, pen = ruta["paradas"], ruta["penultima_parada"]
+    P = ruta["paradas"]
     L = []
     for p in P:
         pcs = p["pacientes"]
@@ -989,12 +997,10 @@ def mapa_json(ruta):
     for p in ruta["paradas"]:
         x = base_pac(p)
         k = len(p["pacientes"])
-        loc = {"name": f"{p['n']} · {dir_corta(x, 60)}" + (f" ({k} pac.)" if k > 1 else ""),
-               "latitude": p["lat"], "longitude": p["lng"], "notes": titulo(moda([y["ref_dom"] for y in p["pacientes"]]))}
-        if p.get("place_id"):
-            loc["place_id"] = p["place_id"]
+        loc = {"name": f"{p['n']} · {dir_corta(x, 40)}" + (f" ({k} pac.)" if k > 1 else ""),
+               "latitude": round(p["lat"], 5), "longitude": round(p["lng"], 5)}
         if p.get("a_pie_desde") is not None:
-            loc["notes"] += f" · a pie desde la {p['a_pie_desde']}" if p["a_pie_desde"] else " · a pie desde donde estás"
+            loc["notes"] = f"a pie desde la {p['a_pie_desde']}" if p["a_pie_desde"] else "a pie desde donde estás"
         locs.append(loc)
     rg = ruta.get("retorno_grifo")
     acc = ruta.get("acceso") or {"n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1], "place_id": PADOMI_PID}
@@ -1019,10 +1025,9 @@ def mapa_json(ruta):
     dias = [{"day_number": 1, "title": " → ".join(distritos_ruta(ruta, 4)), "locations": locs}]
     V = ruta.get("visitadas", [])
     if V:   # en plena ruta: día 1 = ya atendidos (tachados), día 2 = lo que falta
-        tachar = lambda t: "".join(c + "\u0336" for c in t)
         hechos = [{"name": "PADOMI (salida)", "latitude": PADOMI[0], "longitude": PADOMI[1]}] + \
-                 [{"name": "✓ " + tachar(f"{p['n']} · {dir_corta(base_pac(p))}"), "latitude": p["lat"],
-                   "longitude": p["lng"], "notes": "Ya atendido"} for p in V]
+                 [{"name": f"✓ {p['n']} · {dir_corta(base_pac(p), 30)} (atendido)", "latitude": round(p["lat"], 5),
+                   "longitude": round(p["lng"], 5)} for p in V]
         dias = [{"day_number": 1, "title": f"Ya visitados (1 a {V[-1]['n']})", "locations": hechos},
                 {"day_number": 2, "title": f"Lo que falta: {ruta['paradas'][0]['n']} a {ruta['paradas'][-1]['n']} y retorno",
                  "locations": locs}]
@@ -1150,12 +1155,12 @@ def plan_retorno(ruta, g):
     cerca que EsSalud, se pasa primero por el grifo; si EsSalud queda más cerca, primero se deja al
     especialista (en el acceso más rápido) y luego se va al grifo. Si están casi igual de cerca
     (MARGEN_GRIFO_KM), va el grifo primero: así no hay que salir de EsSalud y volver. Del grifo se vuelve al
-    acceso más cercano a él."""
+    acceso más rápido desde él."""
     ult = ruta["paradas"][-1]
     u = (ult["lat"], ult["lng"])
     acc = ruta.get("acceso") or {"n": 0, "nombre": "PADOMI", "lat": PADOMI[0], "lng": PADOMI[1], "place_id": PADOMI_PID}
     pg = (g["lat"], g["lng"])
-    acc_g = min(cargar_accesos(), key=lambda a: hav(pg, (a["lat"], a["lng"])))
+    acc_g = elegir_acceso(pg)
     km_g, km_p = hav(u, pg), hav(u, (acc["lat"], acc["lng"]))
     nav_g = nav_a(g["lat"], g["lng"], g.get("place_id"))
     nav_f = nav_a(acc_g["lat"], acc_g["lng"], acc_g.get("place_id"))
@@ -1254,10 +1259,10 @@ def cmd_ruta(a):
     P = ruta["paradas"]
     print(json.dumps({
         "paradas": len(P), "pacientes": sum(len(p["pacientes"]) for p in P),
-        "penultima_parada": ruta["penultima_parada"], "tiempos": ruta["tiempos"], "grupos": ruta["grupos"],
+"tiempos": ruta["tiempos"], "grupos": ruta["grupos"],
         "total_min": ruta["total_min"], "nuevos": ruta["nuevos"], "avisos": ruta["avisos"],
         "grafico": g, "revisar_grafico": revisar, "etiquetas": f"etiquetas_{fec}.json",
-    }, ensure_ascii=False, indent=1))
+    }, ensure_ascii=False))
     # primero lo urgente: a dónde ir ahora (se manda apenas sale, antes de la lista, el mapa y el gráfico)
     p = P[0]
     gente = ", ".join(f"{titulo(y['paciente'])} ({y['edad']})" for y in p["pacientes"])

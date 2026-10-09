@@ -1,8 +1,34 @@
 {
- "nota": "Accesos de EsSalud (PADOMI) para el regreso. El script elige el que tome menos tiempo desde la última parada (tiempos por calle: respeta el sentido de las calles) y lo usa para dejar al especialista.",
+ "nota": "Accesos de EsSalud (PADOMI) para el regreso. 'origenes': 24 puntos a 0.8, 2.5 y 6 km de EsSalud en 8 direcciones, con los segundos por calle (OSRM, respeta el sentido de las calles) hasta cada acceso, en el orden de 'accesos'. El script toma el origen más cercano a la última parada y elige el acceso más rápido desde ahí: sin consultas extra cada día. Medido el 08/10/2026.",
  "accesos": [
   {"id": "ACC1", "n": 1, "nombre": "Av. Arenales 1502", "lat": -12.0801128, "lng": -77.0364753},
   {"id": "ACC2", "n": 2, "nombre": "Jr. Domingo Cueto 120", "lat": -12.079706, "lng": -77.0369314, "place_id": "ChIJQ7lgePTIBZER5HljGzJomRU"},
   {"id": "ACC3", "n": 3, "nombre": "Jr. Coronel Zegarra 198", "lat": -12.0770038, "lng": -77.038055}
+ ],
+ "origenes": [
+  [-12.07171, -77.03715, [138, 144, 148]],
+  [-12.07382, -77.03196, [134, 141, 137]],
+  [-12.07894, -77.02981, [187, 173, 275]],
+  [-12.08406, -77.03196, [184, 170, 265]],
+  [-12.08618, -77.03715, [231, 218, 312]],
+  [-12.08406, -77.04235, [156, 142, 211]],
+  [-12.07894, -77.0445, [192, 179, 179]],
+  [-12.07382, -77.04235, [153, 159, 120]],
+  [-12.05633, -77.03715, [309, 316, 322]],
+  [-12.06295, -77.02091, [378, 385, 453]],
+  [-12.07894, -77.01419, [384, 390, 459]],
+  [-12.09493, -77.02091, [380, 371, 446]],
+  [-12.10155, -77.03715, [351, 338, 433]],
+  [-12.09493, -77.05339, [322, 309, 350]],
+  [-12.07894, -77.06012, [352, 338, 379]],
+  [-12.06295, -77.05339, [501, 502, 470]],
+  [-12.02468, -77.03715, [705, 711, 720]],
+  [-12.04057, -76.99818, [739, 745, 814]],
+  [-12.07894, -76.98204, [732, 735, 807]],
+  [-12.11731, -76.99818, [752, 738, 817]],
+  [-12.13321, -77.03715, [760, 746, 787]],
+  [-12.11731, -77.07613, [696, 682, 723]],
+  [-12.07894, -77.09227, [730, 717, 758]],
+  [-12.04057, -77.07613, [861, 867, 876]]
  ]
 }
