@@ -648,7 +648,7 @@ def factor_trafico(cfg, a, b, cuando):
 
 
 # ---------------------------------------------------------------- orden de visita
-def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
+def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=None):
     anchas = AVENIDAS_ANCHAS + [sin_tildes(a.strip()) for a in anchas if a.strip()]
     B = construir(fec, voy, usar_lugares=True, gps=gps, quitar=quitar)
     S, avisos, inicio = B["stops"], B["avisos"], B["inicio"]
@@ -719,9 +719,33 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
     gid = {i: k for k, grp in enumerate(G) for i in grp}
     gmask = [sum(1 << (i - 1) for i in grp) for grp in G]
 
+    # prioridad (--primero, pedido del usuario 10/10/2026): esas paradas van primero, en el orden dado, y el
+    # resto se optimiza desde la última. Se resuelve con una copia de T penalizada (To); los minutos de la
+    # línea de tiempo siguen saliendo del T real.
+    pre = []
+    for tok in [sin_tildes(x.strip()) for x in (primero or "").split(",") if x.strip()]:
+        hit = next((k for k in range(1, n + 1) if k not in pre and any(
+            tok == str(y.get("cod_pac", "")).upper() or tok in sin_tildes(y.get("paciente", ""))
+            for y in S[k - 1]["pacientes"])), None)
+        if hit is None:
+            avisos.append(f"PRIORIDAD: no encontré a '{tok}' entre los pendientes")
+        else:
+            pre.append(hit)
+    To = [row[:] for row in T]
+    if pre:
+        BIG = 1e7
+        cadena = [0] + pre
+        for a_, b_ in zip(cadena, cadena[1:]):
+            for j in range(1, N):
+                if j != b_:
+                    To[a_][j] += BIG                          # de a_ solo se sigue a b_
+            for i in range(N):
+                if i not in (a_, b_):
+                    To[i][b_] += BIG                          # a b_ solo se llega desde a_
+
     def costo(order):
         seq = [0] + order + [E]
-        c = sum(T[a][b] for a, b in zip(seq, seq[1:]))
+        c = sum(To[a][b] for a, b in zip(seq, seq[1:]))
         vistos, prev = set(), None
         for i in order:
             if gid[i] != prev:
@@ -736,7 +760,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         dp = [[INF] * n for _ in range(1 << n)]
         par = [[-1] * n for _ in range(1 << n)]
         for i in range(n):
-            dp[1 << i][i] = T[0][i + 1]
+            dp[1 << i][i] = To[0][i + 1]
         for mask in range(1, 1 << n):
             row = dp[mask]
             for j in range(n):
@@ -748,12 +772,12 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
                 for k in range(n):
                     if mask & (1 << k):
                         continue
-                    nc = c + T[j + 1][k + 1] + (sale if gid[k + 1] != gj else 0)
+                    nc = c + To[j + 1][k + 1] + (sale if gid[k + 1] != gj else 0)
                     nm = mask | (1 << k)
                     if nc < dp[nm][k]:
                         dp[nm][k] = nc
                         par[nm][k] = j
-        last = min(range(n), key=lambda j: dp[full][j] + T[j + 1][E])
+        last = min(range(n), key=lambda j: dp[full][j] + To[j + 1][E])
         order, mask, j = [], full, last
         while j != -1:
             order.append(j + 1)
@@ -767,7 +791,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         for it in range(40 if n <= 20 else 12):
             left, seq, cur = set(range(1, n + 1)), [], 0
             while left:
-                cand = sorted(left, key=lambda k: T[cur][k])[:1 if it == 0 else 2]
+                cand = sorted(left, key=lambda k: To[cur][k])[:1 if it == 0 else 2]
                 cur = rnd.choice(cand); seq.append(cur); left.remove(cur)
             c = costo(seq)
             mejoro = True
@@ -792,7 +816,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
                 order, mejor = seq, c
 
     # sin tiempos por calle el circuito al revés cuesta igual: terminar en la parada más cercana a PADOMI
-    if tiempos == "linea_recta" and inicio["tipo"] == "padomi" and D[order[-1]][E] > D[order[0]][E] \
+    if not pre and tiempos == "linea_recta" and inicio["tipo"] == "padomi" and D[order[-1]][E] > D[order[0]][E] \
             and abs(costo(order[::-1]) - costo(order)) < 1:
         order.reverse()
 
@@ -880,6 +904,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None):
         "paradas_ajustadas_a_direccion": [{"n": p["n"], "direccion": p["destino"]["direccion"],
                                            "ajuste_m": p["destino"]["ajuste_m"]} for p in paradas if p.get("destino")],
         "nuevos": [x["paciente"] for p in paradas for x in p["pacientes"] if x.get("nuevo")],
+        "prioridad": [num_de[i] for i in pre],
         "avisos": avisos,
         "trafico": {"salida": (salida or hora_lima()).strftime("%H:%M"), "salida_fijada": salida is not None,
                     "ida": info_leg.get(1), "regreso": info_leg.get(len(seq_nodes) - 1)},
@@ -1269,7 +1294,7 @@ def cmd_ruta(a):
     if a.salida:                                          # para planear o ensayar: --salida 07:00
         h, m = (int(x) for x in a.salida.split(":"))
         salida = hora_lima().replace(hour=h, minute=m, second=0, microsecond=0)
-    B, ruta = calcular(fec, a.voy, gps_arg(a.gps), a.quitar, (a.ancha or "").split(","), salida)
+    B, ruta = calcular(fec, a.voy, gps_arg(a.gps), a.quitar, (a.ancha or "").split(","), salida, a.primero)
     if ruta is None:
         print(json.dumps({"paradas": 0, "avisos": B["avisos"] or ["Sin pacientes pendientes"]}, ensure_ascii=False))
         return
@@ -1297,7 +1322,7 @@ def cmd_ruta(a):
     P = ruta["paradas"]
     print(json.dumps({
         "paradas": len(P), "pacientes": sum(len(p["pacientes"]) for p in P),
-"tiempos": ruta["tiempos"], "grupos": ruta["grupos"],
+"tiempos": ruta["tiempos"], "grupos": ruta["grupos"], "prioridad": ruta["prioridad"],
         "total_min": ruta["total_min"], "nuevos": ruta["nuevos"], "avisos": ruta["avisos"],
         "grafico": g, "revisar_grafico": revisar, "etiquetas": f"etiquetas_{fec}.json",
         "salida": ruta["trafico"]["salida"],              # el análisis final la reutiliza: mismo orden
@@ -1326,6 +1351,7 @@ for p_ in (p2, p3):
     p_.add_argument("--quitar", help="apellidos o códigos de pacientes ya atendidos, separados por comas")
 p3.add_argument("--especialista"); p3.add_argument("--sin-grafico", action="store_true")
 p3.add_argument("--salida", help="HH:MM de salida para planear o ensayar (por defecto, ahora)")
+p3.add_argument("--primero", help="apellidos o códigos de pacientes que el usuario pide atender primero, en ese orden, separados por comas")
 p3.add_argument("--ancha", help="calles que el usuario dice que son anchas o peligrosas de cruzar a pie, separadas por comas")
 p4 = sub.add_parser("grifo"); p4.add_argument("fec")
 p4.add_argument("--en", help="--en=LAT,LNG[,PLACE_ID] (con =, porque empieza con signo menos)")

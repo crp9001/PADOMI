@@ -13,6 +13,7 @@ El skill instalado (cargador) ya actualizó el repositorio público `crp9001/PAD
 - **Nunca** escribas ni guardes el usuario o la clave de Geoprog. Los pacientes son solo para la ruta del día: no van a memoria ni a artifacts.
 - **Fecha:** hora de Lima. Si `fecha_distinta_a_hoy`, dilo en la primera línea; si `despues_de_6pm` y es hoy, pregunta si es para hoy o mañana.
 - **El orden lo pone el script** (tiempos por calle, tráfico por hora y sentido, pequeños grupos, a pie primero). No reordenes a mano.
+- **Prioridad:** si el usuario pide atender primero a alguien (por nombre, código o distrito: "prioridad paciente de SMP"), agrega `--primero "Apellido1,Apellido2"` (o el código `P…`) a **cada** `ruta` del día, también al análisis final y a los recálculos mientras siga pendiente. Esos van primero en ese orden y el resto lo optimiza el script; el JSON trae `prioridad` con sus números.
 - **A pie:** a 40 m o menos y sin cruzar avenida ancha, la unidad no se mueve ("🚶 A pie desde la N"). Pasa siempre `--ancha "A,B"` con las avenidas de la memoria; si el usuario nombra otra, guárdala ahí.
 - **Salida:** PADOMI, Av. Arenales 1302. **Llegada:** el script elige el acceso de EsSalud más rápido según por dónde llegas (`data/accesos.json`).
 
