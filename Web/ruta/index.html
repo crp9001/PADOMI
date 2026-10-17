@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0d6a4a">
+<title>Ruta PADOMI</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --bg:#f2f5f1; --card:#ffffff; --ink:#14201a; --sub:#55645b; --line:#d5ddd6;
+  --brand:#0d6a4a; --brand-ink:#ffffff; --soft:#e3f0e9; --warn:#b3261e; --warn-bg:#fdecea;
+  --amber:#8a5a00; --amber-bg:#fff4dc; --done:#8b968f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:env(safe-area-inset-bottom)}
+header{position:sticky;top:0;z-index:500;background:var(--brand);color:var(--brand-ink);display:flex;align-items:center;gap:8px;padding:10px 16px}
+header h1{font-size:18px;margin:0;flex:1;letter-spacing:.2px}
+header .quien{font-size:14px;opacity:.9}
+header button{background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;min-height:38px;padding:0 12px;font-size:15px}
+main{max-width:720px;margin:0 auto;padding:12px 16px 40px}
+.vista{display:none}.vista.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+h2{font-size:19px;margin:4px 0 8px}
+h3{font-size:16px;margin:16px 0 6px;color:var(--sub);text-transform:uppercase;letter-spacing:.5px}
+label{display:block;font-size:15px;color:var(--sub);margin:10px 0 4px}
+input[type=text],input[type=password],input[type=time],input[type=number],textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+textarea{min-height:120px;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:0 18px;border-radius:12px;border:1px solid var(--brand);background:var(--brand);color:#fff;font:600 17px/1.2 inherit;text-decoration:none;cursor:pointer}
+.btn.sec{background:#fff;color:var(--brand)}
+.btn.full{width:100%;margin-top:12px}
+.btn[disabled]{opacity:.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.radio{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:16px;color:var(--ink)}
+.radio input{width:22px;height:22px}
+.msg{padding:10px 12px;border-radius:10px;margin:10px 0;font-size:15px}
+.msg.err{background:var(--warn-bg);color:var(--warn)}
+.msg.ok{background:var(--soft);color:var(--brand)}
+.msg.aviso{background:var(--amber-bg);color:var(--amber)}
+.sub{color:var(--sub);font-size:14px}
+.resumen{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.dato{background:var(--soft);border-radius:10px;padding:8px 10px}
+.dato b{display:block;font-size:20px}
+.dato span{font-size:13px;color:var(--sub)}
+#mapa{height:300px;border-radius:12px;border:1px solid var(--line);margin:12px 0}
+.parada{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 12px 12px 56px;margin:10px 0;position:relative}
+.parada .num{position:absolute;left:10px;top:12px;width:36px;height:36px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.parada.sig{border:2px solid var(--brand);box-shadow:0 2px 10px rgba(13,106,74,.15)}
+.parada.hecha{opacity:.6}
+.parada.hecha .num{background:var(--done)}
+.parada.hecha .dir{text-decoration:line-through}
+.parada.tarde .num{background:var(--warn)}
+.dir{font-weight:700;font-size:17px}
+.hora{font-size:14px;color:var(--sub);margin-top:2px}
+.pac{margin-top:8px}
+.pac .nom{font-weight:600}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.tag{font-size:13px;border-radius:999px;padding:2px 10px;background:var(--amber-bg);color:var(--amber)}
+.tel{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--brand);font-weight:600;text-decoration:none;margin:6px 6px 0 0;font-size:16px}
+.acciones{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.acciones .btn{flex:1;min-width:130px}
+.sig-etq{display:inline-block;background:var(--brand);color:#fff;font-size:12px;border-radius:999px;padding:1px 8px;margin-bottom:4px}
+.tramo{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.tramo:last-child{border-bottom:0}
+.tramo a{font-weight:700;color:var(--brand)}
+.tabla{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--sub);font-weight:600}
+.menu{position:fixed;top:58px;right:12px;z-index:600;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:240px;display:none}
+.menu.on{display:block}
+.menu button,.menu div{display:block;width:100%;text-align:left;background:none;border:0;padding:14px 16px;font:inherit;color:var(--ink);border-bottom:1px solid var(--line)}
+.menu div{color:var(--sub);font-size:14px}
+.menu button:last-child{border-bottom:0}
+details summary{cursor:pointer;color:var(--sub);padding:6px 0}
+.leaflet-div-icon.pin{background:transparent;border:0}
+.pin span{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#0d6a4a;color:#fff;font:700 12px/1 system-ui;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.pin.hecha span{background:#8b968f}.pin.base span{background:#14201a}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ruta PADOMI</h1>
+  <span class="quien" id="quien"></span>
+  <button id="bMenu" hidden aria-label="Menú">☰</button>
+</header>
+<div class="menu" id="menu">
+  <div id="mUso"></div>
+  <button data-ir="lista">Nueva lista</button>
+  <button data-ir="clave">Cambiar contraseña</button>
+  <button data-ir="panel" id="mPanel" hidden>Panel del piloto</button>
+  <button id="mSalir">Salir</button>
+</div>
+<main>
+
+<section class="vista" id="v-login">
+  <div class="card">
+    <h2>Ingresar</h2>
+    <p class="sub">Herramienta de ruta del piloto. Tu usuario y contraseña te los da Cristhian.</p>
+    <form id="fLogin" autocomplete="on">
+      <label for="lUsuario">Usuario</label>
+      <input type="text" id="lUsuario" autocomplete="username" autocapitalize="none" required>
+      <label for="lClave">Contraseña</label>
+      <input type="password" id="lClave" autocomplete="current-password" required>
+      <button class="btn full" type="submit">Ingresar</button>
+    </form>
+    <div id="lMsg"></div>
+  </div>
+</section>
+
+<section class="vista" id="v-lista">
+  <div class="card">
+    <h2>Lista del día</h2>
+    <p class="sub">En Geoprog toca el favorito <b>rutapadomi</b>, luego <b>COPIAR</b>, y pégalo aquí.</p>
+    <textarea id="tLista" placeholder="RUTA PADOMI {...}"></textarea>
+    <div class="fila"><button class="btn sec" id="bPegar" type="button">📋 Pegar</button><span class="sub" id="tInfo"></span></div>
+    <label>Salida de PADOMI</label>
+    <label class="radio"><input type="radio" name="modo" value="ahora" checked> Salgo ahora</label>
+    <label class="radio"><input type="radio" name="modo" value="hora"> A las <input type="time" id="tHora" value="07:15" style="width:auto;margin-left:6px"></label>
+    <button class="btn full" id="bArmar">Armar ruta</button>
+    <div id="tMsg"></div>
+  </div>
+  <p class="sub">Los nombres, direcciones y teléfonos se quedan en este celular: al servidor solo van las coordenadas.</p>
+</section>
+
+<section class="vista" id="v-ruta">
+  <div class="card" id="rResumen"></div>
+  <div id="rAvisos"></div>
+  <div id="mapa"></div>
+  <div id="rParadas"></div>
+  <div class="card" id="rTramos"></div>
+  <div class="acciones">
+    <button class="btn" id="bRecalc">📍 Recalcular desde donde estoy</button>
+    <button class="btn sec" id="bNueva">Nueva lista</button>
+  </div>
+  <div id="rMsg"></div>
+  <div class="card" id="rLlegada">
+    <h2>Al terminar el día</h2>
+    <p class="sub">Para comparar con lo estimado. Sin nombres de pacientes.</p>
+    <div class="fila">
+      <div style="flex:1;min-width:130px"><label for="llSalida">Hora real de salida</label><input type="time" id="llSalida"></div>
+      <div style="flex:1;min-width:130px"><label for="llHora">Llegada real a EsSalud</label><input type="time" id="llHora"></div>
+    </div>
+    <label for="llKm">Km recorridos (opcional, del odómetro)</label>
+    <input type="number" id="llKm" inputmode="decimal" min="0" step="0.1">
+    <label for="llNota">Nota (opcional): tráfico, desvíos, cambios</label>
+    <input type="text" id="llNota" maxlength="200">
+    <button class="btn full" id="bLlegada">Guardar llegada</button>
+    <div id="llMsg"></div>
+  </div>
+</section>
+
+<section class="vista" id="v-clave">
+  <div class="card">
+    <h2>Cambiar contraseña</h2>
+    <label for="cActual">Contraseña actual</label><input type="password" id="cActual" autocomplete="current-password">
+    <label for="cNueva">Nueva (mínimo 8 caracteres)</label><input type="password" id="cNueva" autocomplete="new-password">
+    <button class="btn full" id="bClave">Guardar</button>
+    <div id="cMsg"></div>
+  </div>
+</section>
+
+<section class="vista" id="v-panel">
+  <div class="card" id="pGoogle"></div>
+  <div class="card"><h2>Conductores</h2><div id="pUsuarios"></div></div>
+  <div class="card"><h2>Llegadas registradas</h2><div id="pLlegadas"></div></div>
+</section>
+
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script>
+'use strict';
+// ------------------------------------------------------------------ datos fijos
+const PADOMI = {lat: -12.0782458, lng: -77.0368112};
+const NAV = 'https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate';
+const MIN_PAC = 6, POR_TRAMO = 5;
+// accesos de EsSalud y tiempos medidos desde puntos de llegada (data/accesos.json del skill)
+const ACC = {"accesos":[{"id":"ACC1","n":1,"nombre":"Av. Arenales 1502","lat":-12.0801128,"lng":-77.0364753},{"id":"ACC2","n":2,"nombre":"Jr. Domingo Cueto 120","lat":-12.079706,"lng":-77.0369314,"place_id":"ChIJQ7lgePTIBZER5HljGzJomRU"},{"id":"ACC3","n":3,"nombre":"Jr. Coronel Zegarra 198","lat":-12.0770038,"lng":-77.038055}],"origenes":[[-12.07171,-77.03715,[138,144,148]],[-12.07382,-77.03196,[134,141,137]],[-12.07894,-77.02981,[187,173,275]],[-12.08406,-77.03196,[184,170,265]],[-12.08618,-77.03715,[231,218,312]],[-12.08406,-77.04235,[156,142,211]],[-12.07894,-77.0445,[192,179,179]],[-12.07382,-77.04235,[153,159,120]],[-12.05633,-77.03715,[309,316,322]],[-12.06295,-77.02091,[378,385,453]],[-12.07894,-77.01419,[384,390,459]],[-12.09493,-77.02091,[380,371,446]],[-12.10155,-77.03715,[351,338,433]],[-12.09493,-77.05339,[322,309,350]],[-12.07894,-77.06012,[352,338,379]],[-12.06295,-77.05339,[501,502,470]],[-12.02468,-77.03715,[705,711,720]],[-12.04057,-76.99818,[739,745,814]],[-12.07894,-76.98204,[732,735,807]],[-12.11731,-76.99818,[752,738,817]],[-12.13321,-77.03715,[760,746,787]],[-12.11731,-77.07613,[696,682,723]],[-12.07894,-77.09227,[730,717,758]],[-12.04057,-77.07613,[861,867,876]]]};
+const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const DIAS_L = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+const $ = s => document.querySelector(s);
+let YO = null, R = null, MAPA = null, CAPA = null;
+
+// ------------------------------------------------------------------ texto (igual que el script del skill)
+const ENT = document.createElement('textarea');
+const dec = s => { ENT.innerHTML = String(s ?? ''); return ENT.value; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const TILDES = {'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ü': 'U', 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u'};
+const sinTildes = t => String(t).replace(/[ÁÉÍÓÚÜáéíóúü]/g, c => TILDES[c]).toUpperCase();
+const PARTICULAS = new Set(['DE', 'DEL', 'LA', 'LAS', 'LOS', 'Y', 'E', 'EN', 'CON']);
+const ROMANOS = new Set(['II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII']);
+function palabra(w, inicio, trasMz) {
+  const u = w.toUpperCase();
+  if (trasMz) return u;
+  if (!inicio && PARTICULAS.has(u)) return w.toLowerCase();
+  if (u === 'VDA') return 'vda.';
+  if (ROMANOS.has(u) || (/\d/.test(w) && w.length <= 4)) return u;
+  return w.replace(/\p{L}+/gu, m => m[0].toUpperCase() + m.slice(1).toLowerCase());
+}
+function titulo(t, fijas = new Set()) {
+  const out = [];
+  for (const w of dec(t).split(/\s+/).filter(Boolean)) {
+    if (fijas.has(w)) { out.push(w); continue; }
+    const prev = out.length ? out[out.length - 1] : '';
+    out.push(palabra(w, !out.length || fijas.has(prev) || prev.endsWith('.'), ['Mz', 'Lt', 'MZ', 'LT'].includes(prev)));
+  }
+  return out.join(' ');
+}
+const ABREV = {CA: 'Calle', AV: 'Av.', 'AV.': 'Av.', JR: 'Jr.', 'JR.': 'Jr.', PS: 'Psje.', PSJ: 'Psje.', UR: 'Urb.', URB: 'Urb.',
+  'URB.': 'Urb.', 'UR.': 'Urb.', ASOC: 'Asoc.', 'ASOC.': 'Asoc.', AH: 'A.H.', AAHH: 'A.H.', UV: 'U.V.', MZ: 'Mz', 'MZ.': 'Mz',
+  LT: 'Lt', 'LT.': 'Lt', PROLONG: 'Prolong.', CDRA: 'cdra', 'CDRA.': 'cdra'};
+const FIJAS = new Set(Object.values(ABREV));
+const ERRATAS = {PARUQE: 'PARQUE', CALERADE: 'CALERA DE', NEOPLASTICA: 'NEOPLASICAS', NEOPLASICA: 'NEOPLASICAS',
+  CINCURVALACION: 'CIRCUNVALACION', AVIACON: 'AVIACION', REPUBLCA: 'REPUBLICA'};
+function limpiar(t, dst = '') {
+  t = String(t).replace(/\s+/g, ' ').trim();
+  t = t.replace(/\b(URB|DPTO|DPT|PSJE|AV|CA|JR|ALT|CDRA|CDR|ESQ|STA)\.(?=[A-Z0-9])/gi, '$1. ');
+  t = t.replace(/\b(?:NRO|N[°º])\.?\s*(?=\d)/gi, '');
+  t = t.replace(/\s*\bCEL\.?\s*\d{6,}/gi, '');
+  for (const [a, b] of Object.entries(ERRATAS)) t = t.replace(new RegExp('\\b' + a + '\\b', 'gi'), b);
+  if (dst && t.length > dst.length + 8 && t.toUpperCase().endsWith(' ' + dst.toUpperCase())) t = t.slice(0, -dst.length - 1).replace(/[ ,]+$/, '');
+  return t;
+}
+const DISTRITOS = {'LIMA CERCADO': 'Cercado de Lima', 'S. M. DE PORRES': 'San Martín de Porres', 'ATE VITARTE': 'Ate',
+  'S. J. DE LURIGANCHO': 'San Juan de Lurigancho', 'S. J. DE MIRAFLORES': 'San Juan de Miraflores', 'V. M. DEL TRIUNFO': 'Villa María del Triunfo'};
+const distrito = d => DISTRITOS[String(d).trim().toUpperCase()] || titulo(d);
+function partesDir(nomVia) {
+  let t = dec(nomVia).replace(/_/g, ' ').replace(/\s+/g, ' ').trim().replace(/^(CR|OT)\s+/i, '');
+  let casa = '';
+  const m = t.match(/(?:\s*"|\s*\bC\.\s?R\.?\s*|\s+CR\s+)(.*)$/);
+  if (m) {
+    casa = titulo(m[1].replace(/"/g, '').trim());
+    casa = casa ? 'C.R. ' + casa : '';
+    t = t.slice(0, m.index).trim();
+  }
+  t = t.replace(/\b(MZ|LT)\.?(?=[A-Z0-9])/gi, '$1 ');
+  return [titulo(t.split(' ').map(w => ABREV[w.toUpperCase()] || w).join(' '), FIJAS), casa];
+}
+function corta(p, max = 38) {
+  const toks = partesDir(p.nom_via)[0].split(' ');
+  const k = toks.findIndex((w, i) => i && /^\d{2,}$/.test(w));
+  let b = (k > 0 ? toks.slice(0, k + 1) : toks).join(' ');
+  return b.length > max ? b.slice(0, max - 1).replace(/\s\S*$/, '') + '…' : b;
+}
+const esCasaReposo = p => /^CR\b|\bC\.\s?R\.|\sCR\s|CASA DE REPOSO|ASILO|ALBERGUE|HERMANITA/.test(sinTildes(p.nom_via + ' ' + p.ref_dom));
+const esMzLt = p => /\bMZ\b|\bMZ\.|\bLT\b|\bLT\.|\bAAHH\b|\bA\.\s?H\.|\bASOC|\bAH\b|\bUV\b/.test(sinTildes(p.nom_via));
+function telefonos(t) {
+  const out = [];
+  for (let w of String(t).split(/[\s/,;]+/)) {
+    w = w.replace(/^[-.]+|[-.]+$/g, '');
+    if ((w.match(/\d/g) || []).length >= 6 && !out.includes(w)) out.push(w);
+  }
+  return out;
+}
+function telHref(w) {
+  const d = w.replace(/\D/g, '');
+  return 'tel:' + (d.length === 7 ? '01' + d : d);           // fijo de Lima: 01 + 7 dígitos
+}
+function hav(a, b) {
+  const R0 = 6371, r = x => x * Math.PI / 180;
+  const dp = r(b.lat - a.lat), dl = r(b.lng - a.lng);
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dl / 2) ** 2;
+  return 2 * R0 * Math.asin(Math.sqrt(h));
+}
+const GENERIC = new Set(['CALLE', 'AVENIDA', 'JIRON', 'PASAJE', 'DPTO', 'DPT', 'PISO', 'INT', 'BLOCK', 'URB', 'LOTE', 'ETAPA', 'SECTOR',
+  'CASA', 'REPOSO', 'ASOC', 'SAN', 'SANTA', 'LOS', 'LAS', 'DEL', 'LIMA']);
+function addrKey(via) {
+  const ws = sinTildes(via).replace(/[^A-Z0-9Ñ ]/g, ' ').split(/\s+/).filter(Boolean);
+  return {nums: ws.filter(w => /^\d{2,}$/.test(w)), words: ws.filter(w => /^[A-ZÑ]{4,}$/.test(w) && !GENERIC.has(w))};
+}
+const cruza = (a, b) => a.some(x => b.includes(x));
+function moda(xs) {
+  const c = {};
+  for (const x of xs.map(x => String(x || '').replace(/\s+/g, ' ').trim()).filter(Boolean)) c[x] = (c[x] || 0) + 1;
+  return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || '';
+}
+const nav = (lat, lng) => `${NAV}&destination=${lat.toFixed(6)},${lng.toFixed(6)}`;
+function fmt(m) {
+  m = Math.round(m);
+  if (m < 60) return m + ' min';
+  return m % 60 === 0 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+}
+function elegirAcceso(p) {
+  const A = ACC.accesos, O = ACC.origenes || [];
+  if (O.length) {
+    const o = O.reduce((m, o) => hav(p, {lat: o[0], lng: o[1]}) < hav(p, {lat: m[0], lng: m[1]}) ? o : m);
+    return A[o[2].indexOf(Math.min(...o[2]))];
+  }
+  return A.reduce((m, a) => hav(p, a) < hav(p, m) ? a : m);
+}
+
+// ------------------------------------------------------------------ hora de Lima (UTC-5 todo el año)
+const p2 = n => String(n).padStart(2, '0');
+const lima = ms => new Date(ms - 5 * 3600e3);                 // usar getUTC*
+const isoLima = ms => { const d = lima(ms); return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}T${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:00-05:00`; };
+const hhmm = ms => { const d = lima(ms); return p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()); };
+const fecDe = ms => { const d = lima(ms); return '' + d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()); };
+const msLima = (y, mo, d, h, mi) => Date.UTC(y, mo - 1, d, h + 5, mi);
+function diaCorto(fec) {
+  if (!/^\d{8}$/.test(fec)) return '';
+  const d = new Date(Date.UTC(+fec.slice(0, 4), +fec.slice(4, 6) - 1, +fec.slice(6, 8)));
+  return `${DIAS[d.getUTCDay()]} ${fec.slice(6, 8)}/${fec.slice(4, 6)}`;
+}
+/** inicio y hora límite para Google. Una hora ya pasada se mide en el mismo día y hora de la semana siguiente. */
+function horas(fec, modo, hora) {
+  const ahora = Date.now();
+  if (!/^\d{8}$/.test(fec)) fec = fecDe(ahora);
+  const y = +fec.slice(0, 4), mo = +fec.slice(4, 6), d = +fec.slice(6, 8);
+  let ini, nota = '';
+  if (modo === 'hora' && /^\d\d:\d\d$/.test(hora || '')) {
+    const [h, mi] = hora.split(':').map(Number);
+    ini = msLima(y, mo, d, h, mi);
+  } else if (fec > fecDe(ahora)) {
+    ini = msLima(y, mo, d, 7, 0);
+    nota = 'Lista de otro día: salida estimada a las 07:00.';
+  } else ini = ahora;
+  ini = Math.floor(ini / 60000) * 60000;
+  let prueba = false;
+  while (ini < ahora - 15 * 60000) { ini += 7 * 86400e3; prueba = true; }
+  if (prueba) nota = `Prueba: Google usa el tráfico típico de un ${DIAS_L[lima(ini).getUTCDay()]} a esa hora.`;
+  const dl = lima(ini);
+  let fin = Date.UTC(dl.getUTCFullYear(), dl.getUTCMonth(), dl.getUTCDate(), 17, 0);   // 12:00 de Lima
+  if (fin <= ini + 30 * 60000) fin = ini + 5 * 3600e3;
+  return {ini, fin, nota, prueba};
+}
+
+// ------------------------------------------------------------------ servidor
+async function api(accion, datos = {}) {
+  let r;
+  try {
+    r = await fetch('api.php', {method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-Ruta': '1'}, body: JSON.stringify({accion, ...datos})});
+  } catch (e) { throw new Error('Sin conexión. Revisa los datos móviles e intenta otra vez.'); }
+  let j = null;
+  try { j = await r.json(); } catch (e) { /* sin JSON */ }
+  if (!j) throw new Error(`El servidor no respondió bien (${r.status}).`);
+  if (j.sin_sesion && accion !== 'login') { YO = null; ver('login'); }
+  if (!j.ok) { const e = new Error(j.error || 'Error'); e.status = r.status; e.detalle = j.detalle; throw e; }
+  return j;
+}
+
+// ------------------------------------------------------------------ estado guardado en este celular
+function guardar() {
+  try { localStorage.setItem('rp_ruta', JSON.stringify(R)); } catch (e) { /* sin almacenamiento */ }
+}
+function cargar() {
+  try {
+    const r = JSON.parse(localStorage.getItem('rp_ruta') || 'null');
+    if (r && r.dia === fecDe(Date.now()) && r.usuario === (YO && YO.usuario)) return r;
+    localStorage.removeItem('rp_ruta');               // lista de otro día u otro usuario: se borra
+  } catch (e) { /* nada */ }
+  return null;
+}
+
+// ------------------------------------------------------------------ lista de Geoprog -> paradas
+function leerLista(txt) {
+  const i = txt.indexOf('{'), j = txt.lastIndexOf('}');
+  if (i < 0 || j < i) throw new Error('No encuentro la lista. Copia todo el texto que empieza con RUTA PADOMI.');
+  let d;
+  try { d = JSON.parse(txt.slice(i, j + 1)); } catch (e) { throw new Error('La lista está incompleta. Vuelve a copiarla desde Geoprog.'); }
+  const rows = Array.isArray(d) ? d : (d.rows || []);
+  if (!rows.length) throw new Error('La lista no trae pacientes.');
+  return {fec: String(d.fec || ''), prof: dec(d.prof || ''), rows};
+}
+function construir(rows) {
+  const stops = [], avisos = [];
+  for (const r of rows) {
+    const lat = parseFloat(r.coordy), lng = parseFloat(r.coordx);
+    const nombre = titulo(r.paciente || '');
+    if (!isFinite(lat) || !isFinite(lng)) { avisos.push('Sin coordenadas en Geoprog: ' + nombre); continue; }
+    if (!(lat > -12.6 && lat < -11.6 && lng > -77.3 && lng < -76.6)) { avisos.push('Coordenadas fuera de Lima: ' + nombre); continue; }
+    const p = {};
+    for (const k of ['cod_pac', 'paciente', 'nom_via', 'ref_dom', 'nom_dst', 'telfs', 'edad']) p[k] = dec(r[k] ?? '').trim();
+    p.nom_via = limpiar(p.nom_via, p.nom_dst);
+    p.ref_dom = limpiar(p.ref_dom);
+    const k = addrKey(p.nom_via);
+    // misma parada: a 25 m o menos, o a 100 m o menos con el mismo número y la misma calle
+    let s = stops.find(x => { const d = hav(x, {lat, lng}); return d <= 0.025 || (d <= 0.1 && cruza(k.nums, x.nums) && cruza(k.words, x.words)); });
+    if (!s) { s = {lat, lng, pacientes: [], nums: k.nums, words: k.words}; stops.push(s); }
+    s.pacientes.push(p);
+  }
+  return {stops: stops.map((s, i) => ({id: String(i + 1), lat: s.lat, lng: s.lng, pacientes: s.pacientes, hecha: false})), avisos};
+}
+
+// ------------------------------------------------------------------ orden de respaldo (sin Google)
+function respaldo(desde, pend) {
+  const left = pend.slice(), orden = [];
+  let cur = desde;
+  while (left.length) {
+    let k = 0;
+    left.forEach((s, i) => { if (hav(cur, s) < hav(cur, left[k])) k = i; });
+    cur = left.splice(k, 1)[0];
+    orden.push(cur);
+  }
+  const estMin = d => d * 6 + 1.25, estKm = d => d * 1.34 + 0.25;  // calibrado con Google (16/10/2026)
+  return {orden, leg: (a, b) => ({min: estMin(hav(a, b)), km: estKm(hav(a, b))})};
+}
+
+// ------------------------------------------------------------------ calcular
+async function calcular(desde, h) {
+  const pend = R.stops.filter(s => !s.hecha);
+  if (!pend.length) throw new Error('No quedan pacientes por atender.');
+  const body = {inicio: isoLima(h.ini), fin: isoLima(h.fin), salida: {lat: +desde.lat.toFixed(6), lng: +desde.lng.toFixed(6)},
+    llegada: PADOMI, trafico: true,
+    paradas: pend.map(s => ({id: s.id, lat: +s.lat.toFixed(6), lng: +s.lng.toFixed(6), min: MIN_PAC * s.pacientes.length}))};
+  const byId = Object.fromEntries(R.stops.map(s => [s.id, s]));
+  let g = null, error = null;
+  try { g = await api('optimizar', body); } catch (e) {
+    if (e.status === 401) throw e;
+    error = e.message + (e.detalle ? ' · ' + e.detalle : '');
+  }
+  const legs = {};
+  let orden, ret, fuente;
+  if (g) {
+    orden = g.orden.map(o => o.id);
+    g.orden.forEach((o, k) => { const t = g.tramos[k] || {}; legs[o.id] = {min: t.min, km: t.km, llega: o.llega}; });
+    const salt = pend.filter(s => !orden.includes(s.id)).map(s => s.id);
+    if (salt.length) {                                   // no alcanzan antes de las 12:00: van al final
+      let prev = byId[orden[orden.length - 1]] || desde;
+      const est = respaldo(prev, salt.map(id => byId[id]));
+      for (const s of est.orden) { legs[s.id] = {...est.leg(prev, s), llega: null, tarde: true}; prev = s; orden.push(s.id); }
+      ret = est.leg(prev, PADOMI);
+    } else {
+      const t = g.tramos[orden.length] || {};
+      ret = {min: t.min, km: t.km};
+    }
+    fuente = 'google';
+  } else {
+    const est = respaldo(desde, pend);
+    let prev = desde, reloj = h.ini;
+    orden = [];
+    for (const s of est.orden) {
+      const l = est.leg(prev, s);
+      reloj += l.min * 60000;
+      legs[s.id] = {...l, llega: hhmm(reloj)};
+      reloj += MIN_PAC * s.pacientes.length * 60000;
+      prev = s; orden.push(s.id);
+    }
+    ret = est.leg(prev, PADOMI);
+    fuente = 'aprox';
+  }
+  // números: primero los atendidos (en su orden), luego los que faltan en el orden nuevo
+  const hechas = R.stops.filter(s => s.hecha).sort((a, b) => (a.n || 0) - (b.n || 0));
+  hechas.forEach((s, i) => { s.n = i + 1; });
+  orden.forEach((id, i) => { byId[id].n = hechas.length + i + 1; byId[id].leg = legs[id]; });
+  const manejo = orden.reduce((t, id) => t + (legs[id].min || 0), 0) + (ret.min || 0);
+  const km = orden.reduce((t, id) => t + (legs[id].km || 0), 0) + (ret.km || 0);
+  const atencion = orden.reduce((t, id) => t + MIN_PAC * byId[id].pacientes.length, 0);
+  const llega = g && !g.no_alcanzan.length ? g.llega_fin : hhmm(h.ini + (manejo + atencion) * 60000);
+  R.calc = {fuente, error, orden, ret, desde, sale: hhmm(h.ini), nota: h.nota, manejo, km, atencion, llega,
+    no_alcanzan: g ? g.no_alcanzan : [], uso: g ? g.uso : null, cuando: Date.now()};
+  if (!R.plan0) R.plan0 = {salida: hhmm(h.ini), est_llegada: llega, est_km: Math.round(km * 10) / 10,
+    est_manejo: Math.round(manejo), paradas: R.stops.length, pacientes: R.stops.reduce((t, s) => t + s.pacientes.length, 0)};
+  guardar();
+}
+
+// ------------------------------------------------------------------ pintar la ruta
+function pintar() {
+  const c = R.calc, byId = Object.fromEntries(R.stops.map(s => [s.id, s]));
+  const pend = c.orden.map(id => byId[id]).filter(s => !s.hecha);
+  const hechas = R.stops.filter(s => s.hecha).sort((a, b) => a.n - b.n);
+  const npac = pend.reduce((t, s) => t + s.pacientes.length, 0);
+  const acc = elegirAcceso(pend.length ? pend[pend.length - 1] : c.desde);
+  const desdeTxt = c.desde.tipo === 'gps' ? 'desde donde estabas' : 'de PADOMI';
+  $('#rResumen').innerHTML = `
+    <h2>Ruta ${esc(diaCorto(R.fec))}${R.prof ? ' · ' + esc(titulo(R.prof)) : ''}</h2>
+    <div class="sub">${pend.length} paradas · ${npac} pacientes por atender${hechas.length ? ` · ${hechas.length} atendidas` : ''}
+      · ${c.fuente === 'google' ? 'Google con tráfico' : '<b>aproximado, sin Google</b>'}</div>
+    <div class="resumen">
+      <div class="dato"><b>${esc(c.llega)}</b><span>vuelta a EsSalud (saliendo ${desdeTxt} ${esc(c.sale)})</span></div>
+      <div class="dato"><b>${fmt(c.manejo + c.atencion)}</b><span>tiempo total</span></div>
+      <div class="dato"><b>${fmt(c.manejo)}</b><span>manejo · ~${c.km.toFixed(1)} km</span></div>
+      <div class="dato"><b>${fmt(c.atencion)}</b><span>atención (${MIN_PAC} min por paciente)</span></div>
+    </div>`;
+  let av = '';
+  if (c.no_alcanzan.length) {
+    const ns = c.no_alcanzan.map(id => byId[id]).map(s => `${s.n} (${esc(titulo(s.pacientes[0].paciente).split(' ')[0])})`);
+    av += `<div class="msg err">⚠️ No llegan antes de las 12:00: ${ns.join(', ')}. Van al final; coordina con PADOMI o pásalos a otra unidad.</div>`;
+  }
+  if (c.error) av += `<div class="msg aviso">Google no respondió (${esc(c.error)}). Orden y tiempos aproximados.</div>`;
+  if (c.nota) av += `<div class="msg aviso">${esc(c.nota)}</div>`;
+  for (const a of R.avisos || []) av += `<div class="msg aviso">${esc(a)}</div>`;
+  $('#rAvisos').innerHTML = av;
+
+  const tarjeta = (s, sig) => {
+    const pcs = s.pacientes;
+    const mv = moda(pcs.map(p => p.nom_via));
+    const base = pcs.find(p => p.nom_via.replace(/\s+/g, ' ').trim() === mv) || pcs[0];
+    const [principal, casa] = partesDir(base.nom_via);
+    const ref = titulo(moda(pcs.map(p => p.ref_dom)));
+    const tags = [];
+    if (pcs.some(esCasaReposo)) tags.push('Casa de reposo: avisa antes');
+    if (pcs.some(esMzLt)) tags.push('Mz/Lt: llama antes de llegar');
+    if (s.leg && s.leg.tarde) tags.push('Después de las 12:00');
+    const l = s.leg || {};
+    const hora = s.hecha ? 'Atendido' : [l.llega ? `llegas ~${l.llega}` : '', l.min != null ? `${Math.max(1, Math.round(l.min))} min de manejo` : '',
+      l.km != null ? `${l.km.toFixed(1)} km` : ''].filter(Boolean).join(' · ');
+    const pacs = pcs.map(p => `<div class="pac"><span class="nom">${esc(titulo(p.paciente))}</span> <span class="sub">(${esc(p.edad)})</span><br>${
+      telefonos(p.telfs).map(t => `<a class="tel" href="${telHref(t)}">☎ ${esc(t)}</a>`).join('') || '<span class="sub">sin teléfono</span>'}</div>`).join('');
+    return `<div class="parada${sig ? ' sig' : ''}${s.hecha ? ' hecha' : ''}${l.tarde ? ' tarde' : ''}" id="p${s.id}">
+      <div class="num">${s.n}</div>
+      ${sig ? '<span class="sig-etq">Siguiente</span>' : ''}
+      <div class="dir">${esc(principal)}, ${esc(distrito(base.nom_dst))}${pcs.length > 1 ? ` · ${pcs.length} pacientes` : ''}</div>
+      ${casa ? `<div class="sub">${esc(casa)}</div>` : ''}
+      <div class="hora">${esc(hora)}</div>
+      ${ref ? `<div class="sub">Ref.: ${esc(ref)}</div>` : ''}
+      ${tags.length ? `<div class="tags">${tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      ${pacs}
+      <div class="acciones">
+        ${s.hecha ? '' : `<a class="btn" href="${nav(s.lat, s.lng)}" target="_blank" rel="noopener">🧭 Ir</a>`}
+        <button class="btn sec" data-hecha="${s.id}">${s.hecha ? 'Desmarcar' : '✓ Atendido'}</button>
+      </div></div>`;
+  };
+  const sigId = pend.length ? pend[0].id : null;
+  let html = pend.map(s => tarjeta(s, s.id === sigId)).join('');
+  if (hechas.length) html = `<details><summary>Ya atendidos (${hechas.length})</summary>${hechas.map(s => tarjeta(s, false)).join('')}</details>` + html;
+  $('#rParadas').innerHTML = html;
+
+  // tramos: la 1ª parada sola (su 🧭) y luego de 5 en 5, como en el skill
+  let tr = '<h2>Tramos para Google Maps</h2>';
+  if (pend.length) {
+    const p0 = pend[0], l0 = p0.leg || {};
+    tr += `<div class="tramo"><a href="${nav(p0.lat, p0.lng)}" target="_blank" rel="noopener">🧭 Parada ${p0.n}</a><span class="sub">manejo ~${fmt(l0.min || 0)} + atención ${fmt(MIN_PAC * p0.pacientes.length)}</span></div>`;
+    const resto = pend.slice(1);
+    for (let k = 0; k < resto.length; k += POR_TRAMO) {
+      const g = resto.slice(k, k + POR_TRAMO);
+      const cs = g.map(s => `${s.lat.toFixed(5)},${s.lng.toFixed(5)}`);
+      const url = `${NAV}&destination=${cs[cs.length - 1]}` + (cs.length > 1 ? '&waypoints=' + cs.slice(0, -1).join('%7C') : '');
+      const man = g.reduce((t, s) => t + ((s.leg || {}).min || 0), 0) + (k + POR_TRAMO >= resto.length ? (c.ret.min || 0) : 0);
+      const at = g.reduce((t, s) => t + MIN_PAC * s.pacientes.length, 0);
+      tr += `<div class="tramo"><a href="${url}" target="_blank" rel="noopener">🗺️ Paradas ${g[0].n}${g.length > 1 ? ' a ' + g[g.length - 1].n : ''}</a><span class="sub">manejo ~${fmt(man)} + atención ${fmt(at)}</span></div>`;
+    }
+  }
+  tr += `<div class="tramo"><a href="${nav(acc.lat, acc.lng)}" target="_blank" rel="noopener">🏁 Regreso: EsSalud, acceso ${acc.n}</a><span class="sub">${esc(acc.nombre)} · ~${fmt(c.ret.min || 0)}</span></div>`;
+  tr += '<p class="sub">🗺️ abre hasta 5 paradas seguidas en Google Maps. Si se cierra a mitad de tramo, usa el 🧭 de la parada.</p>';
+  $('#rTramos').innerHTML = tr;
+  $('#bRecalc').disabled = !pend.length;
+  const pl = R.plan0 || {};
+  if (pl.salida && !$('#llSalida').value) $('#llSalida').value = pl.salida;
+  ver('ruta');
+  pintarMapa(pend, hechas, acc);
+}
+
+function pintarMapa(pend, hechas, acc) {
+  const el = $('#mapa');
+  const L = window.L;
+  if (!L || !L.map) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  if (!MAPA) {
+    MAPA = L.map(el, {zoomControl: true, attributionControl: true});
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(MAPA);
+  }
+  if (CAPA) CAPA.remove();
+  CAPA = L.layerGroup().addTo(MAPA);
+  const ico = (t, cls) => L.divIcon({className: 'pin ' + cls, html: `<span>${t}</span>`, iconSize: [26, 26], iconAnchor: [13, 13]});
+  const desde = R.calc.desde;
+  const linea = [[desde.lat, desde.lng], ...pend.map(s => [s.lat, s.lng]), [acc.lat, acc.lng]];
+  L.polyline(linea, {color: '#0d6a4a', weight: 3, opacity: .7}).addTo(CAPA);
+  L.marker([desde.lat, desde.lng], {icon: ico(desde.tipo === 'gps' ? '📍' : 'P', 'base')}).addTo(CAPA);
+  L.marker([acc.lat, acc.lng], {icon: ico('E', 'base')}).addTo(CAPA);
+  for (const s of hechas) L.marker([s.lat, s.lng], {icon: ico(s.n, 'hecha')}).addTo(CAPA);
+  for (const s of pend) L.marker([s.lat, s.lng], {icon: ico(s.n, '')}).addTo(CAPA)
+    .bindPopup(`<b>${s.n}.</b> ${esc(corta(s.pacientes[0]))}<br><a href="${nav(s.lat, s.lng)}" target="_blank" rel="noopener">🧭 Ir</a>`);
+  const todos = [...linea, ...hechas.map(s => [s.lat, s.lng])];
+  setTimeout(() => { MAPA.invalidateSize(); MAPA.fitBounds(todos, {padding: [24, 24]}); }, 50);
+}
+
+// ------------------------------------------------------------------ vistas y eventos
+function ver(v) {
+  document.querySelectorAll('.vista').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
+  $('#menu').classList.remove('on');
+  window.scrollTo(0, 0);
+}
+const msg = (sel, t, tipo = 'err') => { $(sel).innerHTML = t ? `<div class="msg ${tipo}">${esc(t)}</div>` : ''; };
+function pintarYo() {
+  $('#quien').textContent = YO ? YO.nombre : '';
+  $('#bMenu').hidden = !YO;
+  $('#mPanel').hidden = !(YO && YO.admin);
+  if (YO) $('#mUso').textContent = `Tu uso hoy: ${YO.uso.hoy} de ${YO.limite_dia} paradas`;
+}
+async function entrar() {
+  pintarYo();
+  R = cargar();
+  if (R && R.calc) pintar(); else ver('lista');
+}
+
+$('#fLogin').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  msg('#lMsg', '');
+  try {
+    YO = await api('login', {usuario: $('#lUsuario').value, clave: $('#lClave').value});
+    $('#lClave').value = '';
+    entrar();
+  } catch (e) { msg('#lMsg', e.message); }
+});
+
+$('#tLista').addEventListener('input', () => {
+  try {
+    const d = leerLista($('#tLista').value);
+    $('#tInfo').textContent = `${diaCorto(d.fec)} · ${d.rows.length} pacientes`;
+  } catch (e) { $('#tInfo').textContent = ''; }
+});
+$('#bPegar').addEventListener('click', async () => {
+  try {
+    $('#tLista').value = await navigator.clipboard.readText();
+    $('#tLista').dispatchEvent(new Event('input'));
+  } catch (e) { msg('#tMsg', 'No pude leer el portapapeles: mantén presionado el cuadro y elige Pegar.', 'aviso'); }
+});
+$('#bArmar').addEventListener('click', async () => {
+  msg('#tMsg', '');
+  const b = $('#bArmar');
+  try {
+    const d = leerLista($('#tLista').value);
+    const {stops, avisos} = construir(d.rows);
+    if (!stops.length) throw new Error('Ningún paciente tiene coordenadas en Lima.');
+    const modo = document.querySelector('input[name=modo]:checked').value;
+    const h = horas(d.fec, modo, $('#tHora').value);
+    R = {dia: fecDe(Date.now()), usuario: YO.usuario, fec: d.fec, prof: d.prof, stops, avisos, plan0: null};
+    b.disabled = true; b.textContent = 'Consultando a Google…';
+    await calcular({lat: PADOMI.lat, lng: PADOMI.lng, tipo: 'padomi'}, h);
+    $('#tLista').value = ''; $('#tInfo').textContent = '';
+    refrescarUso();
+    pintar();
+  } catch (e) { msg('#tMsg', e.message); }
+  b.disabled = false; b.textContent = 'Armar ruta';
+});
+$('#rParadas').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-hecha]');
+  if (!b) return;
+  const s = R.stops.find(x => x.id === b.dataset.hecha);
+  s.hecha = !s.hecha;
+  guardar();
+  pintar();
+  if (s.hecha) {
+    const sig = document.querySelector('.parada.sig');
+    if (sig) sig.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+});
+function ubicacion() {
+  return new Promise((ok, no) => {
+    if (!navigator.geolocation) return no(new Error('Este celular no da la ubicación.'));
+    navigator.geolocation.getCurrentPosition(p => ok({lat: p.coords.latitude, lng: p.coords.longitude}),
+      () => no(new Error('No pude leer tu ubicación. Activa el GPS y da permiso al navegador.')),
+      {enableHighAccuracy: true, timeout: 15000, maximumAge: 60000});
+  });
+}
+$('#bRecalc').addEventListener('click', async () => {
+  msg('#rMsg', '');
+  const b = $('#bRecalc');
+  b.disabled = true; b.textContent = 'Leyendo tu ubicación…';
+  try {
+    let desde;
+    try { desde = {...await ubicacion(), tipo: 'gps'}; } catch (e) {
+      const ult = R.stops.filter(s => s.hecha).sort((a, c) => c.n - a.n)[0];
+      if (!ult) throw e;
+      desde = {lat: ult.lat, lng: ult.lng, tipo: 'gps'};
+      msg('#rMsg', 'Sin GPS: recalculé desde la última parada atendida.', 'aviso');
+    }
+    b.textContent = 'Consultando a Google…';
+    await calcular(desde, horas(fecDe(Date.now()), 'ahora'));
+    refrescarUso();
+    pintar();
+  } catch (e) { msg('#rMsg', e.message); }
+  b.disabled = false; b.textContent = '📍 Recalcular desde donde estoy';
+});
+$('#bNueva').addEventListener('click', () => {
+  if (R && R.stops.some(s => !s.hecha) && !confirm('¿Empezar con una lista nueva? Se borra la ruta de este celular.')) return;
+  try { localStorage.removeItem('rp_ruta'); } catch (e) { /* nada */ }
+  R = null;
+  ver('lista');
+});
+$('#bLlegada').addEventListener('click', async () => {
+  msg('#llMsg', '');
+  try {
+    const pl = R.plan0 || {};
+    await api('llegada', {fecha: R.fec, ...pl, real_salida: $('#llSalida').value, real_llegada: $('#llHora').value,
+      real_km: $('#llKm').value, nota: $('#llNota').value});
+    msg('#llMsg', 'Guardado. ¡Gracias!', 'ok');
+  } catch (e) { msg('#llMsg', e.message); }
+});
+$('#bClave').addEventListener('click', async () => {
+  msg('#cMsg', '');
+  try {
+    await api('clave', {actual: $('#cActual').value, nueva: $('#cNueva').value});
+    $('#cActual').value = $('#cNueva').value = '';
+    msg('#cMsg', 'Contraseña cambiada.', 'ok');
+  } catch (e) { msg('#cMsg', e.message); }
+});
+$('#tHora').addEventListener('input', () => { document.querySelector('input[name=modo][value=hora]').checked = true; });
+$('#bMenu').addEventListener('click', () => $('#menu').classList.toggle('on'));
+document.querySelectorAll('#menu [data-ir]').forEach(b => b.addEventListener('click', () => {
+  const v = b.dataset.ir;
+  if (v === 'lista' && R && R.calc) { $('#bNueva').click(); return; }
+  if (v === 'panel') { panel(); return; }
+  ver(v);
+}));
+$('#mSalir').addEventListener('click', async () => {
+  try { await api('salir'); } catch (e) { /* igual sale */ }
+  YO = null; pintarYo(); ver('login');
+});
+async function refrescarUso() {
+  try { YO = await api('yo'); pintarYo(); } catch (e) { /* nada */ }
+}
+async function panel() {
+  ver('panel');
+  $('#pGoogle').innerHTML = '<p class="sub">Cargando…</p>';
+  try {
+    const p = await api('panel');
+    const g = p.google;
+    $('#pGoogle').innerHTML = `<h2>Cuota de Google</h2>
+      <div class="resumen"><div class="dato"><b>${g.mes.toLocaleString('es-PE')}</b><span>paradas este mes${g.mes_id ? ' (' + esc(g.mes_id) + ')' : ''} de ${g.gratis_mes.toLocaleString('es-PE')} gratis · freno en ${g.tope_mes.toLocaleString('es-PE')}</span></div>
+      <div class="dato"><b>${g.dia === new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10) ? g.hoy : 0}</b><span>paradas hoy (todos)</span></div></div>`;
+    $('#pUsuarios').innerHTML = `<div class="tabla"><table><tr><th>Usuario</th><th>Hoy</th><th>Mes</th><th>Último uso</th></tr>${
+      p.usuarios.map(u => `<tr><td>${esc(u.nombre)}<br><span class="sub">${esc(u.usuario)}${u.admin ? ' · admin' : ''}</span></td><td>${u.hoy} / ${u.limite_dia}</td><td>${u.mes}</td><td>${esc(u.ultimo || '—')}</td></tr>`).join('')}</table></div>`;
+    const dif = (a, b) => { if (!a || !b) return ''; const m = (s => +s.slice(0, 2) * 60 + +s.slice(3))(b) - (s => +s.slice(0, 2) * 60 + +s.slice(3))(a); return (m > 0 ? '+' : '') + m + ' min'; };
+    $('#pLlegadas').innerHTML = p.llegadas.length ? `<div class="tabla"><table><tr><th>Día</th><th>Paradas</th><th>Estimado</th><th>Real</th><th>Dif.</th></tr>${
+      p.llegadas.map(x => `<tr><td>${esc(diaCorto(x.fecha))}<br><span class="sub">${esc(x.usuario)}</span></td><td>${x.paradas} (${x.pacientes} pac.)</td>
+        <td>${esc(x.salida || '')}→${esc(x.est_llegada || '')}<br><span class="sub">${x.est_km} km · ${x.est_manejo} min</span></td>
+        <td>${esc(x.real_salida || '')}→${esc(x.real_llegada)}<br><span class="sub">${x.real_km != null ? x.real_km + ' km' : ''}</span></td>
+        <td>${dif(x.est_llegada, x.real_llegada)}${x.nota ? `<br><span class="sub">${esc(x.nota)}</span>` : ''}</td></tr>`).join('')}</table></div>`
+      : '<p class="sub">Todavía no hay llegadas registradas.</p>';
+  } catch (e) { $('#pGoogle').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+
+// ------------------------------------------------------------------ inicio
+(async () => {
+  try { YO = await api('yo'); entrar(); } catch (e) { YO = null; pintarYo(); ver('login'); }
+})();
+window.addEventListener('load', () => { if (R && R.calc && $('#v-ruta').classList.contains('on')) pintar(); });
+</script>
+</body>
+</html>
