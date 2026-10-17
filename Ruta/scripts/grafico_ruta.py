@@ -54,8 +54,9 @@ def fmt(m):
     if m < 60:
         return f"{m} min"
     return f"{m // 60} h" if m % 60 == 0 else f"{m // 60} h {m % 60:02d} min"
+PASO = ruta.get("paso_min", 5)                           # Google: al minuto; cálculo propio: de 5 en 5
 def r5(m):
-    return int(5 * round(m / 5.0))
+    return int(PASO * round(m / PASO))
 
 # ---------- proyección a km ----------
 KX = 111.32 * math.cos(math.radians(12.05)); KY = 110.57
@@ -112,8 +113,8 @@ for t in T:
     txt = (f"Tramo {t['tramo']} ({rango}{extra}): manejo ~{fmt(man)} + atención "
            f"{fmt(t['atencion_min'])} ({t['pacientes']} pac.) = {fmt(tot)}")
     rows.append(("tramo", (t["tramo"], txt), 1))
-total = sum(r5(t["manejo_min"]) + t["atencion_min"] for t in T) \
-    + (r5(PR["manejo_min"]) + PR["atencion_min"] if PR else 0)
+total = ruta.get("total_min") or (sum(r5(t["manejo_min"]) + t["atencion_min"] for t in T)
+                                  + (r5(PR["manejo_min"]) + PR["atencion_min"] if PR else 0))
 npac = sum(len(p["pacientes"]) for p in P)
 rows.append(("total", (f"Tiempo restante estimado: {fmt(total)}  ({npac} pacientes por atender × 6 min + manejo)" if HAY_INI
                        else f"Tiempo total estimado: {fmt(total)}  ({npac} pacientes × 6 min + manejo)"), 1.2))
@@ -137,9 +138,10 @@ for p, d in zip(P, dirs):
     lines = textwrap.wrap(txt, 64, subsequent_indent="   ")
     bold = k > 1 or any(x.get("nuevo") for x in p["pacientes"])
     rows.append(("parada", (p["n"], "\n".join(lines), bold), max(1, len(lines) * 0.85)))
-nota_manejo = ("Manejo: tiempos por calle (OpenStreetMap) con tráfico según la hora y el sentido (data/trafico.json)."
-               if ruta.get("tiempos") == "calles" else
-               "Manejo estimado: distancia en línea recta × 1.35 a 20 km/h promedio.")
+nota_manejo = {
+    "google": "Orden, manejo y km: Google Route Optimization con tráfico.",
+    "calles": "Manejo: tiempos por calle (OpenStreetMap) con tráfico según la hora y el sentido, calibrados con Google.",
+}.get(ruta.get("tiempos"), "Manejo estimado: distancia en línea recta por calle y tráfico, calibrado con Google.")
 rows.append(("nota", nota_manejo + " Atención: 6 min por paciente.\n"
                      "Las líneas rectas muestran el orden de visita, no el camino exacto. Para manejar usa Google Maps.\n"
                      "Línea de puntos = a pie, sin mover la unidad. Gris y tachado = ya atendido.\n"

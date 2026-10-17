@@ -3,7 +3,7 @@ name: ruta-padomi
 description: "Arma la ruta diaria de visitas PADOMI (EsSalud) desde Geoprog: un solo circuito desde PADOMI (Av. Arenales) y de vuelta a EsSalud. Úsala cuando el usuario pida su ruta PADOMI, Geoprog o la ruta del día, o pegue un texto que empieza con RUTA PADOMI."
 ---
 
-# Ruta PADOMI (v5)
+# Ruta PADOMI (v6)
 
 El skill instalado (cargador) ya actualizó el repositorio público `crp9001/PADOMI` en `padomi/`, mostró este archivo y `references/obras.md`, y corrió `preparar`. `$S` = `padomi/Ruta/scripts`. Los archivos del día van en la carpeta de trabajo, nunca en el repositorio. **Al repositorio no van pacientes, personal, placas, grifos ni claves: es público.**
 
@@ -12,7 +12,9 @@ El skill instalado (cargador) ya actualizó el repositorio público `crp9001/PAD
 - Todo desde el **celular**: mensajes cortos, en español. Lo urgente es el **1er paciente**: junta en un mensaje las llamadas independientes y no narres los pasos.
 - **Nunca** escribas ni guardes el usuario o la clave de Geoprog. Los pacientes son solo para la ruta del día: no van a memoria ni a artifacts.
 - **Fecha:** hora de Lima. Si `fecha_distinta_a_hoy`, dilo en la primera línea; si `despues_de_6pm` y es hoy, pregunta si es para hoy o mañana.
-- **El orden lo pone el script** (tiempos por calle, tráfico por hora y sentido, pequeños grupos, a pie primero). No reordenes a mano.
+- **El orden lo pone el script** y no se reordena a mano. Con la clave de Google (`~/.padomi_google_clave`, la escribe el cargador; nunca va al repositorio ni al chat) el orden, los minutos y los km salen de **Google Route Optimization con tráfico** vía `jyc.pe/ruta/optimizar.php` (JSON `tiempos: "google"`). Si Google no responde o se acabó la cuota, sale solo con el cálculo propio (tiempos por calle, tráfico por hora y sentido, calibrado con Google) y un aviso `GOOGLE: …`; sigue igual, sin reintentar. `--sin-google` lo fuerza.
+- **Cuota de Google:** cada consulta gasta 1 por parada (5,000 gratis al mes; el servidor frena en 4,800). La misma salida con las mismas paradas reutiliza `google_<fec>.json` sin gastar: por eso el análisis final va con la `--salida` del paso 2.
+- **12:00:** si un aviso dice `NO LLEGAN ANTES DE LAS 12:00`, esos van al final; dilo en el primer mensaje, en una línea, para que lo coordine con PADOMI.
 - **Prioridad:** si el usuario pide atender primero a alguien (por nombre, código o distrito: "prioridad paciente de SMP"), agrega `--primero "Apellido1,Apellido2"` (o el código `P…`) a **cada** `ruta` del día, también al análisis final y a los recálculos mientras siga pendiente. Esos van primero en ese orden y el resto lo optimiza el script; el JSON trae `prioridad` con sus números.
 - **A pie:** a 40 m o menos y sin cruzar avenida ancha, la unidad no se mueve ("🚶 A pie desde la N"). Pasa siempre `--ancha "A,B"` con las avenidas de la memoria; si el usuario nombra otra, guárdala ahí.
 - **Salida:** PADOMI, Av. Arenales 1302. **Llegada:** el script elige el acceso de EsSalud más rápido según por dónde llegas (`data/accesos.json`).
@@ -32,9 +34,10 @@ Si `igual_a_la_anterior` y ya hay ruta, dilo en media línea y no recalcules. Si
    python3 $S/ruta_padomi.py ruta <fec> --especialista "Nombre Apellido" --ancha "..." --sin-grafico
    ```
    Una línea por lugar: `d` si `types` trae `street_address`, `premise` o `subpremise`; si no, `o`. `place_id` solo si empieza con `ChIJ`. La dirección tal cual (sin ", Peru"). Un resultado de `places_search` que cae en otra calle u otro distrito va con las coordenadas de Geoprog, `-` y `o`. Una respuesta de WebFetch que falló se omite: el script avisa y usa línea recta. Anota la `salida` que muestra el JSON: el análisis final la reutiliza.
-3. **Primer mensaje** (`SendUserMessage`) y **termina el turno**: "Hoy vas con <Nombre> (código <C. MAPA>)." + una línea de **ida** (evitando obras) + el **PRIMER MENSAJE** tal cual + "🚐 ¿Qué placa tiene hoy la unidad?". No mandes lista, gráfico ni mapa, ni sigas analizando. Si hoy ya dio la placa y si recarga (otra lista del mismo día), no preguntes: haz el análisis final en este mismo turno.
+3. **Primer mensaje** (`SendUserMessage`) y **termina el turno**: (si hay aviso de las 12:00, va primero) "Hoy vas con <Nombre> (código <C. MAPA>)." + una línea de **ida** (evitando obras) + el **PRIMER MENSAJE** tal cual + "🚐 ¿Qué placa tiene hoy la unidad?". No mandes lista, gráfico ni mapa, ni sigas analizando. Si hoy ya dio la placa y si recarga (otra lista del mismo día), no preguntes: haz el análisis final en este mismo turno.
 4. **Placa y combustible** (abajo) hasta saber si recarga.
 5. **Análisis final, uno solo.** Un Bash: `grifo` (o `grifo <fec> --ninguno`) y luego `python3 $S/ruta_padomi.py ruta <fec> --especialista "..." --ancha "..." --salida <salida del paso 2>` (misma salida = mismo orden y mismo 1er paciente). Solo si `revisar_grafico` no es `false`: mira el PNG con Read, corrige `etiquetas_<fec>.json` y corre `python3 $S/grafico_ruta.py ruta_<fec>.json etiquetas_<fec>.json <png>`. Luego **Entrega final**.
+   - **Piloto 19 al 24/10/2026:** agrega `--comparar` al análisis final y, después de la entrega, una línea con `comparacion`: "Google: X km, Y min, vuelta HH:MM · orden propio medido por Google: …". Desde el 25/10 ya no.
    - Si pide la lista antes de terminar con la placa o el combustible, haz el análisis final sin recarga y pregunta lo que falte al final de esa entrega; cuando responda, manda solo la línea de regreso y el total nuevo.
 
 ## Especialista
@@ -68,7 +71,7 @@ Dos grifos fijos y unidades que cambian; todo está en la memoria ("Grifos" y "U
 No hay GPS en segundo plano. Si pregunta "¿cómo voy?", pide su ubicación y dile la siguiente parada, la distancia y si hay que llamar antes. Recuérdale escribir solo detenido.
 
 ## Ajustes
-- **Tráfico:** factores por hora, día y sentido en `data/trafico.json`. Si dice que una franja o un sentido le tomó más o menos, ajústalos ahí.
+- **Tráfico:** con Google, el tráfico es el de Google. El cálculo propio usa los factores por hora, día y sentido de `data/trafico.json` y su `calibracion` (minutos y km ajustados con Google el 16/10/2026). Si dice que una franja o un sentido le tomó más o menos, ajústalos ahí; con días de `--comparar` se puede recalibrar.
 - **Accesos:** `data/accesos.json` (si cambian, hay que volver a medir su tabla).
 - **Favorito `rutapadomi`** y ruta desde la computadora: en el cargador instalado, no en este repositorio.
 

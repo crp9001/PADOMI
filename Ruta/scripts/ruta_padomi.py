@@ -57,6 +57,11 @@ AVENIDAS_ANCHAS = ["JAVIER PRADO", "AVIACION", "ANGAMOS", "AREQUIPA", "PASEO DE 
                    "EVITAMIENTO", "RAMIRO PRIALE", "ARGENTINA", "MORALES DUAREZ", "NARANJAL", "CARLOS IZAGUIRRE",
                    "SAN LUIS", "LA MOLINA", "EL DERBY", "CAMINOS DEL INCA", "SANTA ROSA", "GRAU"]
 NAV = "https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate"
+# Google Route Optimization a través de la página del usuario (pedido del 17/10/2026). Solo viajan coordenadas,
+# minutos de atención y números de parada: nunca nombres ni teléfonos. La clave NO va en este repositorio público:
+# la escribe el cargador del skill en ~/.padomi_google_clave (o la variable PADOMI_GOOGLE_CLAVE).
+GOOGLE_URL = "https://jyc.pe/ruta/optimizar.php"
+HORA_LIMITE = (12, 0)                  # el último paciente debe empezar antes de las 12:00
 AQUI = os.path.dirname(os.path.abspath(__file__))
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
@@ -364,8 +369,8 @@ def fmt(m):
         return f"{m} min"
     return f"{m // 60} h" if m % 60 == 0 else f"{m // 60} h {m % 60:02d} min"
 
-def r5(m):
-    return int(5 * round(m / 5.0))
+def r5(m, paso=5):
+    return int(paso * round(m / paso))
 
 def base_pac(p):
     """el paciente con la forma más repetida de la dirección de la parada (para mostrarla)"""
@@ -647,8 +652,78 @@ def factor_trafico(cfg, a, b, cuando):
     return f, etiqueta, sentido, flujo
 
 
+# ---------------------------------------------------------------- Google Route Optimization
+def clave_google():
+    v = os.environ.get("PADOMI_GOOGLE_CLAVE", "").strip()
+    for path in (os.path.expanduser("~/.padomi_google_clave"), ".padomi_google_clave"):
+        if not v and os.path.exists(path):
+            v = open(path, encoding="utf-8").read().strip()
+    return v or None
+
+def pedir_google(fec, pts, S, order, salida_dt, fijar, avisos):
+    """Pide a jyc.pe/ruta/optimizar.php el orden (o mide 'fijar') con el tráfico de Google.
+    Devuelve la respuesta o None (y deja el motivo en avisos). Se guarda en google_<fec>.json: la misma
+    salida y las mismas paradas no se vuelven a pedir (mismo orden, sin gastar cuota)."""
+    clave = clave_google()
+    if not clave:
+        return None
+    ini = salida_dt.replace(second=0, microsecond=0)
+    ahora = hora_lima()
+    nota = None
+    while ini < ahora - datetime.timedelta(minutes=15):  # hora pasada (ensayo o lista vieja): mismo día y hora
+        ini += datetime.timedelta(days=7)                 # de la semana siguiente, con su tráfico típico
+        nota = ("tráfico típico de un " + ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado",
+                                           "domingo"][ini.weekday()] + f" (Google midió el {ini.strftime('%d/%m')})")
+    fin = ini.replace(hour=HORA_LIMITE[0], minute=HORA_LIMITE[1])
+    if fin <= ini + datetime.timedelta(minutes=30):       # salida pasado el mediodía: sin hora límite real
+        fin = ini + datetime.timedelta(hours=5)
+    paradas = [{"id": str(i), "lat": round(pts[i][0], 6), "lng": round(pts[i][1], 6),
+                "min": MIN_POR_PACIENTE * len(S[i - 1]["pacientes"])} for i in sorted(order)]
+    iso = lambda t: t.replace(tzinfo=None).isoformat() + "-05:00"   # hora_lima() trae la hora de Lima marcada UTC
+    body = {"inicio": iso(ini), "fin": iso(fin),
+            "salida": {"lat": round(pts[0][0], 6), "lng": round(pts[0][1], 6)},
+            "llegada": {"lat": PADOMI[0], "lng": PADOMI[1]}, "paradas": paradas, "trafico": True}
+    if fijar:
+        body["fijar_orden"] = [str(i) for i in fijar]
+    import hashlib, urllib.request, urllib.error
+    firma = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+    cache_path = f"google_{fec}.json"
+    try:
+        cache = leer(cache_path)
+    except (OSError, ValueError):
+        cache = {}
+    if firma in cache:
+        return cache[firma]
+    req = urllib.request.Request(GOOGLE_URL, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "X-Clave": clave})
+    resp, error = None, None
+    for intento in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=75) as f:
+                resp = json.loads(f.read())
+            break
+        except urllib.error.HTTPError as e:
+            try:
+                d = json.loads(e.read())
+                error = f"{d.get('error', e.code)}" + (f" ({d['detalle'][:120]})" if d.get("detalle") else "")
+            except Exception:
+                error = f"respuesta {e.code}"
+            break                                         # un error de Google no se arregla reintentando
+        except Exception as e:
+            error = f"sin conexión ({e.__class__.__name__})"
+    if not resp or not resp.get("ok"):
+        avisos.append(f"GOOGLE: {error or 'respuesta vacía'}; tiempos con el cálculo propio")
+        return None
+    if nota:
+        resp["nota"] = nota
+    cache[firma] = resp
+    guardar(cache_path, cache)
+    return resp
+
+
 # ---------------------------------------------------------------- orden de visita
-def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=None):
+def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=None, sin_google=False,
+             comparar=False):
     anchas = AVENIDAS_ANCHAS + [sin_tildes(a.strip()) for a in anchas if a.strip()]
     B = construir(fec, voy, usar_lugares=True, gps=gps, quitar=quitar)
     S, avisos, inicio = B["stops"], B["avisos"], B["inicio"]
@@ -820,23 +895,67 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=No
             and abs(costo(order[::-1]) - costo(order)) < 1:
         order.reverse()
 
+    # Google Route Optimization (17/10/2026): orden y tiempos con el tráfico de Google. Con prioridad, Google solo
+    # mide el orden pedido. Sin clave o si falla: el cálculo propio, calibrado con Google (trafico.json, calibracion).
+    cfg = cargar_trafico()
+    cal = cfg.get("calibracion", {})
+    CAL_MIN = float(cal.get("min", 1.0))                  # tiempos por calle x tráfico se quedaban cortos
+    CAL_EXTRA = float(cal.get("min_extra_por_tramo", 0.0))  # cada tramo suma algo fijo (vueltas, sentido, parquear)
+    KM_RECTO = float(cal.get("km_por_km_recto", FACTOR_CALLES))   # km por calle por cada km en línea recta
+    KM_EXTRA = float(cal.get("km_extra_por_tramo", 0.0))
+    reloj0 = salida or hora_lima()
+    orden_propio = order[:]
+    gleg, gdat, comparacion = {}, None, None
+    if not sin_google:
+        gdat = pedir_google(fec, pts, S, order, reloj0, order if pre else None, avisos)
+    if gdat:
+        g_ord = [int(o["id"]) for o in gdat.get("orden", [])]
+        salt = [int(x) for x in gdat.get("no_alcanzan", [])]
+        nuevo = g_ord + [i for i in order if i in salt and i not in g_ord]
+        tr_g = gdat.get("tramos", [])
+        if sorted(nuevo) == list(range(1, n + 1)) and len(tr_g) == len(g_ord) + 1:
+            order = nuevo
+            for j, t in enumerate(tr_g[:len(g_ord)], 1):
+                gleg[j] = (float(t["min"]), float(t["km"]))
+            if not salt:
+                gleg[n + 1] = (float(tr_g[-1]["min"]), float(tr_g[-1]["km"]))
+            tiempos = "google"
+            if salt:
+                avisos.append("NO LLEGAN ANTES DE LAS 12:00 (Google): " + ", ".join(
+                    f"{titulo(S[i - 1]['pacientes'][0]['paciente'])}" for i in salt)
+                    + ". Van al final; conviene pasarlos a otra unidad o avisar a PADOMI.")
+        else:
+            avisos.append("GOOGLE: respuesta incompleta; tiempos con el cálculo propio")
+            gdat = None
+    if comparar and gdat and order != orden_propio:       # el orden propio medido con el mismo tráfico de Google
+        gp = pedir_google(fec, pts, S, orden_propio, reloj0, orden_propio, avisos)
+        if gp:
+            comparacion = {"google": {k: gdat.get(k) for k in ("km", "manejo_min", "llega_fin")},
+                           "script": {k: gp.get(k) for k in ("km", "manejo_min", "llega_fin")}}
+    elif comparar and gdat:
+        comparacion = {"google": {k: gdat.get(k) for k in ("km", "manejo_min", "llega_fin")}, "script": "mismo orden"}
+
     acceso = elegir_acceso(pts[order[-1]])               # regreso: acceso de EsSalud más rápido
 
-    # línea de tiempo: cada tramo con el tráfico de la hora y el sentido en que se maneja
-    cfg = cargar_trafico()
-    reloj = salida or hora_lima()
+    # línea de tiempo: cada tramo con los minutos de Google o con el tráfico de la hora y el sentido
+    reloj = reloj0
     seq_nodes = [0] + order + [E]
-    leg_min, info_leg = {}, {}
+    leg_min, leg_km, info_leg = {}, {}, {}
     for j in range(1, len(seq_nodes)):
         a, b = seq_nodes[j - 1], seq_nodes[j]
-        if (a, b) in pie:                                  # a pie: sin tráfico
-            mins = T[a][b] * FACTOR_TRAFICO / 60
+        if (a, b) in pie:                                  # a pie: sin tráfico y sin mover la unidad
+            mins, km = T[a][b] * FACTOR_TRAFICO / 60, 0.0
+        elif j in gleg:
+            mins, km = gleg[j]
+            info_leg[j] = {"hora": reloj.strftime("%H:%M"), "factor": None, "franja": "Google con tráfico",
+                           "sentido": "", "flujo": "", "min": round(mins)}
         else:
             f, et, sen, flu = factor_trafico(cfg, pts[a], pts[b], reloj)
-            mins = T[a][b] * f / 60
-            info_leg[j] = {"hora": reloj.strftime("%H:%M"), "factor": round(f, 2), "franja": et,
+            mins = T[a][b] * f * CAL_MIN / 60 + CAL_EXTRA
+            km = D[a][b] * KM_RECTO + (KM_EXTRA if D[a][b] > 0.01 else 0.0)
+            info_leg[j] = {"hora": reloj.strftime("%H:%M"), "factor": round(f * CAL_MIN, 2), "franja": et,
                            "sentido": sen, "flujo": flu, "min": round(mins)}
-        leg_min[j] = mins
+        leg_min[j], leg_km[j] = mins, km
         reloj += datetime.timedelta(minutes=mins)
         if b != E:
             reloj += datetime.timedelta(minutes=MIN_POR_PACIENTE * len(S[b - 1]["pacientes"]))
@@ -852,7 +971,8 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=No
         if pid:                                           # dirección exacta: Google entra por la calle de esa dirección
             nav += f"&destination_place_id={pid}"
         paradas.append({"n": num, "lat": round(s["lat"], 6), "lng": round(s["lng"], 6),
-                        "km_desde_anterior": round(D[prev_i][idx], 2),
+                        "km_desde_anterior": round(leg_km[num - n0], 2),       # por calle (Google o estimado)
+                        "km_linea_recta": round(D[prev_i][idx], 2),
                         "min_desde_anterior": round(leg_min[num - n0], 1),
                         "pacientes": s["pacientes"], "destino": s["destino"], "place_id": pid,
                         "gps": f"{la:.5f}, {lo:.5f}", "nav": nav,
@@ -872,7 +992,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=No
     if n_par > 1:
         p0 = paradas[0]
         primera = {"n": p0["n"], "pacientes": len(p0["pacientes"]), "enlace": p0["nav"],
-                   "km_calles_est": round(D[seq_nodes[0]][seq_nodes[1]] * FACTOR_CALLES, 1),
+                   "km_calles_est": round(leg_km[1], 1),
                    "manejo_min": int(round(leg_min[1])),
                    "atencion_min": len(p0["pacientes"]) * MIN_POR_PACIENTE}
         primera["total_min"] = primera["manejo_min"] + primera["atencion_min"]
@@ -888,7 +1008,7 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=No
         manejo_k = [p for p in stops_k if p.get("a_pie_desde") is None] or stops_k[-1:]
         c = [f"{p['lat']:.5f},{p['lng']:.5f}" for p in manejo_k]   # enlace corto: solo coordenadas, separador %7C
         enlace = f"{NAV}&destination={c[-1]}" + (("&waypoints=" + "%7C".join(c[:-1])) if len(c) > 1 else "")
-        km = sum(D[seq_nodes[j - 1]][seq_nodes[j]] for j in legs) * FACTOR_CALLES
+        km = sum(leg_km[j] for j in legs)
         manejo = sum(leg_min[j] for j in legs)
         npac = sum(len(p["pacientes"]) for p in stops_k)
         tramos.append({"tramo": k, "paradas": [p["n"] for p in stops_k], "pacientes": npac, "enlace": enlace,
@@ -898,15 +1018,22 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=No
     ruta = {
         "fec": fec, "inicio": inicio, "visitadas": B["visitadas"], "paradas": paradas,
         "km_linea_recta_total": round(sum(D[a][b] for a, b in zip(seq_nodes, seq_nodes[1:])), 1),
+        "km_total": round(sum(leg_km.values()), 1),        # por calle, con el regreso a PADOMI
+        "manejo_total_min": int(round(sum(leg_min.values()))),
+        "google": ({k: gdat.get(k) for k in ("sale", "llega_fin", "km", "manejo_min", "orden_fijo", "nota", "uso")}
+                   if gdat else None),
+        "comparacion": comparacion,
         "nav_retorno": nav_retorno, "acceso": acceso, "tiempos": tiempos, "grupos": grupos, "primera": primera, "tramos": tramos,
-        "total_min": sum(r5(t["manejo_min"]) + t["atencion_min"] for t in tramos)
-                     + (r5(primera["manejo_min"]) + primera["atencion_min"] if primera else 0),
+        # total sin redondear cada tramo (la suma de redondeos de 5 en 5 se desviaba hasta 5-10 min).
+        # Los tramos se muestran al minuto con Google y de 5 en 5 con el cálculo propio.
+        "paso_min": 1 if tiempos == "google" else 5,
+        "total_min": int(round(sum(leg_min.values()) + MIN_POR_PACIENTE * sum(len(s["pacientes"]) for s in S))),
         "paradas_ajustadas_a_direccion": [{"n": p["n"], "direccion": p["destino"]["direccion"],
                                            "ajuste_m": p["destino"]["ajuste_m"]} for p in paradas if p.get("destino")],
         "nuevos": [x["paciente"] for p in paradas for x in p["pacientes"] if x.get("nuevo")],
         "prioridad": [num_de[i] for i in pre],
         "avisos": avisos,
-        "trafico": {"salida": (salida or hora_lima()).strftime("%H:%M"), "salida_fijada": salida is not None,
+        "trafico": {"salida": reloj0.strftime("%H:%M"), "salida_fijada": salida is not None,
                     "ida": info_leg.get(1), "regreso": info_leg.get(len(seq_nodes) - 1)},
     }
     return B, ruta
@@ -953,14 +1080,14 @@ def lista_md(ruta, ahora):
     L.append("**Tramos**")
     pr = ruta.get("primera")
     if pr:                                             # la 1ª parada va sola, con el 🧭 del primer mensaje
-        man = r5(pr["manejo_min"])
+        man = r5(pr["manejo_min"], ruta.get("paso_min", 5))
         mtxt = f"manejo ~{fmt(man)}" if man else "muy cerca"
         L.append(f"[🧭 Parada {pr['n']}]({pr['enlace']}) (la del primer mensaje) · {mtxt} + atención "
                  f"{fmt(pr['atencion_min'])} = {fmt(man + pr['atencion_min'])}")
     for t in ruta["tramos"]:
         ps = t["paradas"]
         rango = f"paradas {ps[0]} a {ps[-1]}" if len(ps) > 1 else f"parada {ps[0]}"
-        man = r5(t["manejo_min"])
+        man = r5(t["manejo_min"], ruta.get("paso_min", 5))
         L.append(f"[🗺️ Tramo {t['tramo']}: {rango}]({t['enlace']}) · manejo ~{fmt(man)} + atención "
                  f"{fmt(t['atencion_min'])} ({t['pacientes']} pac.) = {fmt(man + t['atencion_min'])}")
     rg = ruta.get("retorno_grifo")
@@ -968,13 +1095,14 @@ def lista_md(ruta, ahora):
     total = ruta["total_min"] + (r5(rec["extra_min"]) if rec else 0)
     llegada = (ahora + datetime.timedelta(minutes=total)).strftime("%H:%M")
     con = " con recarga" if rec else ""
+    km_txt = f" · ~{ruta['km_total']:.0f} km{' sin la recarga' if rec else ''}" if ruta.get("km_total") else ""
     tr = ruta.get("trafico") or {}
     if ruta["inicio"]["tipo"] != "padomi":
-        L.append(f"**Tiempo restante{con}: {fmt(total)}** · llegada a EsSalud hacia las {llegada}")
+        L.append(f"**Tiempo restante{con}: {fmt(total)}** · llegada a EsSalud hacia las {llegada}{km_txt}")
     else:
         cuando = (f"saliendo a las {ahora.strftime('%H:%M')}" if tr.get("salida_fijada")
                   else f"si sales ahora ({ahora.strftime('%H:%M')})")
-        L.append(f"**Tiempo total estimado{con}: {fmt(total)}** · {cuando}, llegas a EsSalud hacia las {llegada}")
+        L.append(f"**Tiempo total estimado{con}: {fmt(total)}** · {cuando}, llegas a EsSalud hacia las {llegada}{km_txt}")
     def _tr(x, nombre):
         if not x:
             return None
@@ -1013,8 +1141,10 @@ def lista_md(ruta, ahora):
     for a in ruta["avisos"]:
         if not a.startswith("REVISAR"):                # esos ya van en su parada
             N.append(a)
-    if ruta["tiempos"] != "calles":
+    if ruta["tiempos"] == "linea_recta":
         N.append("Orden sin tiempos por calle (línea recta).")
+    elif ruta["tiempos"] == "google":
+        N.append("Orden, tiempos y km: Google con tráfico.")
     if N:
         L.append("**Notas de acceso**")
         L += [f"- {x}" for x in N]
@@ -1232,7 +1362,9 @@ def tiempos_recarga(ruta, orden, u, pa, pg, pf):
         tramos = [("grifo", pa, pg), ("essalud", pg, pf)]
     for destino, a, b in tramos:
         f, et, sen, flu = factor_trafico(cfg, a, b, reloj)
-        mins = hav(a, b) * FACTOR_CALLES / VEL_LIBRE_KMH * 60 * f
+        cal = cfg.get("calibracion", {})
+        mins = hav(a, b) * FACTOR_CALLES / VEL_LIBRE_KMH * 60 * f * float(cal.get("min", 1.0)) \
+            + float(cal.get("min_extra_por_tramo", 0.0))
         legs.append({"a": destino, "hora": reloj.strftime("%H:%M"), "min": round(mins, 1), "franja": et,
                      "factor": round(f, 2)})
         reloj += datetime.timedelta(minutes=mins + (MIN_RECARGA if destino == "grifo" else 0))
@@ -1293,8 +1425,10 @@ def cmd_ruta(a):
     salida = None
     if a.salida:                                          # para planear o ensayar: --salida 07:00
         h, m = (int(x) for x in a.salida.split(":"))
-        salida = hora_lima().replace(hour=h, minute=m, second=0, microsecond=0)
-    B, ruta = calcular(fec, a.voy, gps_arg(a.gps), a.quitar, (a.ancha or "").split(","), salida, a.primero)
+        salida = hora_lima().replace(year=int(fec[:4]), month=int(fec[4:6]), day=int(fec[6:8]),   # el día de la
+                                     hour=h, minute=m, second=0, microsecond=0)   # lista: su tráfico (lun-vie, sáb)
+    B, ruta = calcular(fec, a.voy, gps_arg(a.gps), a.quitar, (a.ancha or "").split(","), salida, a.primero,
+                       a.sin_google, a.comparar)
     if ruta is None:
         print(json.dumps({"paradas": 0, "avisos": B["avisos"] or ["Sin pacientes pendientes"]}, ensure_ascii=False))
         return
@@ -1326,6 +1460,8 @@ def cmd_ruta(a):
         "total_min": ruta["total_min"], "nuevos": ruta["nuevos"], "avisos": ruta["avisos"],
         "grafico": g, "revisar_grafico": revisar, "etiquetas": f"etiquetas_{fec}.json",
         "salida": ruta["trafico"]["salida"],              # el análisis final la reutiliza: mismo orden
+        "km_total": ruta["km_total"], "manejo_min": ruta["manejo_total_min"],
+        "google": ruta["google"], "comparacion": ruta["comparacion"],
     }, ensure_ascii=False))
     # primero lo urgente: a dónde ir ahora (se manda apenas sale, antes de la lista, el mapa y el gráfico)
     p = P[0]
@@ -1341,7 +1477,7 @@ def cmd_ruta(a):
     print("===== MAPA: argumentos para places_map_display_v0 (mapa_%s.json) =====" % fec)
     print(json.dumps(mapa_json(ruta), ensure_ascii=False))
 
-ap = argparse.ArgumentParser(description="Ruta PADOMI v3")
+ap = argparse.ArgumentParser(description="Ruta PADOMI v6")
 sub = ap.add_subparsers(dest="cmd", required=True)
 p1 = sub.add_parser("preparar"); p1.add_argument("archivo"); p1.add_argument("--fec")
 p2 = sub.add_parser("plan"); p3 = sub.add_parser("ruta")
@@ -1353,6 +1489,8 @@ p3.add_argument("--especialista"); p3.add_argument("--sin-grafico", action="stor
 p3.add_argument("--salida", help="HH:MM de salida para planear o ensayar (por defecto, ahora)")
 p3.add_argument("--primero", help="apellidos o códigos de pacientes que el usuario pide atender primero, en ese orden, separados por comas")
 p3.add_argument("--ancha", help="calles que el usuario dice que son anchas o peligrosas de cruzar a pie, separadas por comas")
+p3.add_argument("--sin-google", action="store_true", help="no consultar a Google: orden y tiempos con el cálculo propio")
+p3.add_argument("--comparar", action="store_true", help="también mide con Google el orden propio (piloto 19-24/10)")
 p4 = sub.add_parser("grifo"); p4.add_argument("fec")
 p4.add_argument("--en", help="--en=LAT,LNG[,PLACE_ID] (con =, porque empieza con signo menos)")
 p4.add_argument("--ninguno", action="store_true", help="hoy no recarga: regreso directo a EsSalud")
