@@ -982,7 +982,17 @@ def calcular(fec, voy, gps=None, quitar=None, anchas=(), salida=None, primero=No
                         "cerca_avenida_desde": prev_num if (prev_i, idx) in cerca_avenida else None})
         prev_i, prev_num = idx, num
     num_de = {idx: n0 + k for k, idx in enumerate(order, 1)}
-    grupos = sorted([sorted(num_de[i] for i in grp) for grp in G if len(grp) > 1])
+    # solo los tramos de un grupo que de verdad van seguidos (con el orden de Google un grupo puede partirse)
+    grupos = []
+    for grp in G:
+        run = []
+        for x in sorted(num_de[i] for i in grp):
+            if run and x != run[-1] + 1:
+                grupos += [run] if len(run) > 1 else []
+                run = []
+            run.append(x)
+        grupos += [run] if len(run) > 1 else []
+    grupos.sort()
     nav_retorno = nav_a(acceso["lat"], acceso["lng"], acceso.get("place_id"))
 
     n_par = len(paradas)
