@@ -7,6 +7,7 @@
  *
  * POST JSON con la cabecera "X-Ruta: 1" (bloquea pedidos desde otras páginas). Acciones:
  *   login {usuario, clave} · salir · yo · clave {actual, nueva}
+ *   geoprog {geo: lista|agregar|traer|diag, ...}         → entra a Geoprog y trae las citas (geoprog.php)
  *   optimizar {inicio, fin, salida, llegada, paradas}   → Google Route Optimization (optimizar.php)
  *   llegada {...estimado y hora real}                    → registro del piloto, sin datos de pacientes
  *   panel                                                → solo administrador
@@ -218,6 +219,13 @@ if ($accion === 'clave') {
         $d[$yo['usuario']]['hash'] = password_hash($nueva, PASSWORD_DEFAULT);
     });
     r_salir(200, ['ok' => true]);
+}
+
+// ---- agente Geoprog: entrar con el código del enfermero y traer las citas del día
+if ($accion === 'geoprog') {
+    define('PADOMI_INTERNO', true);         // geoprog.php solo corre con la sesión ya validada
+    require __DIR__ . '/geoprog.php';       // responde y termina
+    exit;
 }
 
 // ---- ordenar con Google

@@ -113,9 +113,33 @@ details summary{cursor:pointer;color:var(--sub);padding:6px 0}
 <section class="vista" id="v-lista">
   <div class="card">
     <h2>Lista del día</h2>
-    <p class="sub">En Geoprog toca el favorito <b>rutapadomi</b>, luego <b>COPIAR</b>, y pégalo aquí.</p>
-    <textarea id="tLista" placeholder="RUTA PADOMI {...}"></textarea>
-    <div class="fila"><button class="btn sec" id="bPegar" type="button">📋 Pegar</button><span class="sub" id="tInfo"></span></div>
+    <div id="geoBox">
+      <label for="gSel">¿Con qué licenciado vas hoy?</label>
+      <select id="gSel">
+        <option value="">— elige de la lista —</option>
+      </select>
+      <div class="fila" style="margin-top:8px">
+        <input type="text" id="gCod" inputmode="numeric" maxlength="6" placeholder="…o escribe el código" style="flex:1;min-width:140px">
+        <input type="date" id="gFec" style="flex:1;min-width:150px">
+      </div>
+      <button class="btn full" id="gTraer">📥 Traer pacientes de Geoprog</button>
+      <div id="gMsg"></div>
+      <details style="margin-top:6px">
+        <summary>➕ Agregar enfermero a la lista</summary>
+        <div class="fila" style="margin-top:8px">
+          <input type="text" id="gnCod" inputmode="numeric" maxlength="6" placeholder="código" style="width:110px">
+          <input type="text" id="gnNom" placeholder="Nombre Apellido" style="flex:1;min-width:150px">
+        </div>
+        <button class="btn sec full" id="gAdd" type="button">Guardar enfermero</button>
+        <div id="gnMsg"></div>
+      </details>
+    </div>
+    <details style="margin-top:14px">
+      <summary class="sub">— o pega la lista a mano (favorito rutapadomi) —</summary>
+      <p class="sub">En Geoprog toca el favorito <b>rutapadomi</b>, luego <b>COPIAR</b>, y pégalo aquí.</p>
+      <textarea id="tLista" placeholder="RUTA PADOMI {...}"></textarea>
+      <div class="fila"><button class="btn sec" id="bPegar" type="button">📋 Pegar</button><span class="sub" id="tInfo"></span></div>
+    </details>
     <label>Salida de PADOMI</label>
     <label class="radio"><input type="radio" name="modo" value="ahora" checked> Salgo ahora</label>
     <label class="radio"><input type="radio" name="modo" value="hora"> A las <input type="time" id="tHora" value="07:15" style="width:auto;margin-left:6px"></label>
@@ -168,6 +192,7 @@ details summary{cursor:pointer;color:var(--sub);padding:6px 0}
   <div class="card"><h2>Llegadas registradas</h2><div id="pLlegadas"></div></div>
 </section>
 
+<p class="sub" style="text-align:center;margin:26px 0 6px">Ruta PADOMI · v7 · demo colaborativa · by Cristhian Ramirez</p>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script>
@@ -584,6 +609,7 @@ function pintarYo() {
 }
 async function entrar() {
   pintarYo();
+  geoInit();
   R = cargar();
   if (R && R.calc) pintar(); else ver('lista');
 }
@@ -725,6 +751,61 @@ async function panel() {
       : '<p class="sub">Todavía no hay llegadas registradas.</p>';
   } catch (e) { $('#pGoogle').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
 }
+
+// ------------------------------------------------------------------ agente Geoprog (entrar con el código del enfermero)
+function geoFecHoy() {
+  const f = fecDe(Date.now());                 // AAAAMMDD en hora de Lima
+  return f.slice(0, 4) + '-' + f.slice(4, 6) + '-' + f.slice(6, 8);
+}
+async function cargarEnfermeros() {
+  const sel = $('#gSel');
+  try {
+    const d = await api('geoprog', {geo: 'lista'});
+    const act = sel.value;
+    sel.innerHTML = '<option value="">— elige de la lista —</option>' +
+      (d.enfermeros || []).map(e => `<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join('');
+    sel.value = act;
+  } catch (e) { /* sin lista: queda la opción vacía y el campo de código a mano */ }
+}
+function geoInit() {
+  if (!$('#gFec').value) $('#gFec').value = geoFecHoy();
+  cargarEnfermeros();
+}
+$('#gSel').addEventListener('change', () => { if ($('#gSel').value) $('#gCod').value = ''; });
+$('#gCod').addEventListener('input', () => { if ($('#gCod').value) $('#gSel').value = ''; });
+$('#gTraer').addEventListener('click', async () => {
+  msg('#gMsg', '');
+  const b = $('#gTraer');
+  const fec = ($('#gFec').value || '').replace(/-/g, '');
+  const id = $('#gSel').value, codigo = $('#gCod').value.trim();
+  if (!/^\d{8}$/.test(fec)) { msg('#gMsg', 'Elige la fecha de la ruta.'); return; }
+  if (!id && !codigo) { msg('#gMsg', 'Elige un enfermero o escribe su código.'); return; }
+  b.disabled = true; b.textContent = 'Entrando a Geoprog…';
+  try {
+    const d = await api('geoprog', {geo: 'traer', id, codigo, fec});
+    if (!d.rows || !d.rows.length) {
+      msg('#gMsg', 'Geoprog no devolvió pacientes para ese día.', 'aviso');
+    } else {
+      $('#tLista').value = 'RUTA PADOMI ' + JSON.stringify({fec: d.fec, prof: d.prof, rows: d.rows});
+      $('#tLista').dispatchEvent(new Event('input'));
+      msg('#gMsg', `${d.prof ? d.prof + ' · ' : ''}${d.rows.length} pacientes. Armando ruta…`, 'ok');
+      $('#bArmar').click();
+    }
+  } catch (e) { msg('#gMsg', e.message); }
+  b.disabled = false; b.textContent = '📥 Traer pacientes de Geoprog';
+});
+$('#gAdd').addEventListener('click', async () => {
+  msg('#gnMsg', '');
+  const codigo = $('#gnCod').value.trim(), nombre = $('#gnNom').value.trim();
+  if (!codigo || !nombre) { msg('#gnMsg', 'Escribe el código y el nombre.'); return; }
+  try {
+    const d = await api('geoprog', {geo: 'agregar', codigo, nombre});
+    $('#gnCod').value = ''; $('#gnNom').value = '';
+    await cargarEnfermeros();
+    $('#gSel').value = d.id;
+    msg('#gnMsg', 'Agregado: ' + d.nombre, 'ok');
+  } catch (e) { msg('#gnMsg', e.message); }
+});
 
 // ------------------------------------------------------------------ inicio
 (async () => {
